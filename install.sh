@@ -39,8 +39,8 @@ if ! command -v espeak >/dev/null 2>&1; then
   echo "   想听发音可稍后安装： sudo apt install espeak"
 fi
 
-# ---------- 3. 下载脚本 + 词库 ----------
-echo "📥 下载主程序与词库..."
+# ---------- 3. 下载脚本 + 数据文件 ----------
+echo "📥 下载主程序与数据..."
 mkdir -p "${INSTALL_DIR}/data" "${BIN_DIR}"
 
 download() {
@@ -55,9 +55,11 @@ download() {
   fi
 }
 
-download "${RAW}/RomanianLearn.js"   "${INSTALL_DIR}/RomanianLearn.js"
-download "${RAW}/data/words.tsv"     "${INSTALL_DIR}/data/words.tsv"
-download "${RAW}/data/lemmas.tsv"    "${INSTALL_DIR}/data/lemmas.tsv"
+# 数据文件清单：词库、词根、翻译表（新增数据文件时务必同步这里）
+download "${RAW}/RomanianLearn.js"        "${INSTALL_DIR}/RomanianLearn.js"
+download "${RAW}/data/words.tsv"          "${INSTALL_DIR}/data/words.tsv"
+download "${RAW}/data/lemmas.tsv"         "${INSTALL_DIR}/data/lemmas.tsv"
+download "${RAW}/data/translations.tsv"   "${INSTALL_DIR}/data/translations.tsv"
 
 # ---------- 4. 生成启动命令 ----------
 cat > "${BIN_DIR}/${CMD_NAME}" << EOF
