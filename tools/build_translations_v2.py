@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""RomanianLearn 翻译表生成 —— 离线管线（一次跑完，顺序正确）。
-
-数据源（均为开源/公开数据，构建时使用，产物打包进仓库）：
-  1. kaikki.org 罗马尼亚语维基词典 -> 英文义项（带词性、词形还原）
-  2. ECDICT 英汉词典（MIT）        -> 中文释义（按词性匹配）
-  3. overrides*.tsv 人工校正        -> 覆盖最高频词与例外
-
-全程不需要运行时联网：产物是 data/translations.tsv。
+"""RomanianLearn 翻译表生成 —— 整合版（一次跑完，顺序正确）。
 
 流程:
   1. kaikki 罗语维基词典 -> 英文义项（带词性、词形还原）
@@ -347,11 +340,19 @@ def main():
     missing = [w for w in words if not zh_map.get(w, {}).get("zh")]
     print(f"[5] 输出（缺中文 {len(missing)}）", flush=True)
 
+    # 英文释义里的交叉引用描述对学习者无用，去掉
+    XREF_RE = re.compile(
+        r"\s*,?\s*(?:synonym of|equivalent to|alternative form of|"
+        r"see also|compare with)\s+[^,;]+", re.I)
+
     with open(OUT, "w", encoding="utf-8") as f:
         for w in words:
             v = zh_map.get(w, {})
             z = (v.get("zh") or "").strip()
             e = (v.get("en") or "").strip()
+            e = XREF_RE.sub("", e).strip(" ,;")
+            if not e:
+                e = (v.get("en") or "").strip()   # 全被清空则保留原值
             if len(e) > 70:
                 e = e[:70].rstrip(" ,;") + "…"
             f.write(f"{w}\t{z}\t{e}\n")
