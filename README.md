@@ -77,10 +77,13 @@ python3 tools/build_wordlist.py <CoRoLa目录> data 5000
 ## 🧪 测试 / Tests
 
 ```bash
-node tools/test_run.js
+node tools/test_run.js      # 管道驱动：出题判定、计分落盘、生词移除、缺词库报错
+python3 tools/test_pty.py   # 真实终端驱动：按键回显、模式切换、完整回合、Ctrl+C 退出
 ```
 
-自动驱动 8 个用例（各模式出题判定、计分落盘、生词移除、缺词库报错），全部通过则退出码为 0。
+两套都全绿才算通过（退出码 0）。
+
+> 回显类问题（如"按一次键出两个字母"）**只能**用 pty 测试发现：stdin 不是终端时 readline 不做回显，管道测不出来。
 
 ## 📄 License
 

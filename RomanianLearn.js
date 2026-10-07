@@ -159,17 +159,34 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 统一的行输入接口：基于 readline，可靠且不会吞键
-function makeReader() {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: process.stdin.isTTY,
-  });
-  return {
-    ask: (q) => new Promise(resolve => rl.question(q, a => resolve((a || '').trim()))),
-    close: () => rl.close(),
-  };
+// 全局唯一的行输入接口。
+// 关键：整个进程只能有一个 readline 实例 —— 若主菜单与玩法各建一个，
+// 两个实例会同时回显按键，导致按一次键出现两个相同字母。
+let _reader = null;
+let currentProgress = null;   // 主菜单持有的进度对象，供 SIGINT 时保存
+let _gracefulExit = null;     // 由启动段注入的退出处理
+
+function getReader() {
+  if (!_reader) {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: process.stdin.isTTY,
+    });
+    // readline 处于 terminal 模式时会自行吞掉 Ctrl+C，
+    // 只在 process 上监听 SIGINT 是收不到的，必须同时挂在 rl 上。
+    rl.on('SIGINT', () => {
+      if (_gracefulExit) _gracefulExit();
+    });
+    _reader = {
+      ask: (q) => new Promise(resolve => rl.question(q, a => resolve((a || '').trim()))),
+      close: () => {
+        try { rl.close(); } catch (e) { /* 忽略 */ }
+        _reader = null;
+      },
+    };
+  }
+  return _reader;
 }
 
 // ============ 通用回合处理 ============
@@ -196,7 +213,7 @@ async function modeFrequencyShoot(ctx) {
   printHeader('🎯 频率射击 — 常见词');
   console.log('  看到单词后输入它，回车确认。输入 q 返回主菜单。\n');
 
-  const reader = makeReader();
+  const reader = getReader();
   let asked = 0;
 
   while (true) {
@@ -211,7 +228,6 @@ async function modeFrequencyShoot(ctx) {
     console.log();
   }
 
-  reader.close();
   saveProgress(ctx.progress);
 }
 
@@ -244,7 +260,7 @@ async function modeGrammarVariants(ctx) {
     { suffix: 'le', hint: '阴性复数·定冠词' },
   ];
 
-  const reader = makeReader();
+  const reader = getReader();
   let asked = 0;
 
   while (true) {
@@ -264,7 +280,6 @@ async function modeGrammarVariants(ctx) {
     console.log();
   }
 
-  reader.close();
   saveProgress(ctx.progress);
 }
 
@@ -286,7 +301,7 @@ async function modeListenSpell(ctx) {
     console.log('     安装后可听发音：sudo apt install espeak\n');
   }
 
-  const reader = makeReader();
+  const reader = getReader();
   let asked = 0;
 
   while (true) {
@@ -311,7 +326,6 @@ async function modeListenSpell(ctx) {
     console.log();
   }
 
-  reader.close();
   saveProgress(ctx.progress);
 }
 
@@ -332,7 +346,7 @@ async function modeSentenceBuild(ctx) {
     { sentence: 'Mulțumesc ___ ajutor.', answer: 'pentru', hint: '为了 / 因为' },
   ];
 
-  const reader = makeReader();
+  const reader = getReader();
   let asked = 0;
 
   while (true) {
@@ -349,7 +363,6 @@ async function modeSentenceBuild(ctx) {
     console.log();
   }
 
-  reader.close();
   saveProgress(ctx.progress);
 }
 
@@ -365,7 +378,7 @@ async function modeReview(ctx) {
     return;
   }
 
-  const reader = makeReader();
+  const reader = getReader();
   let asked = 0;
 
   while (true) {
@@ -404,7 +417,6 @@ async function modeReview(ctx) {
     console.log();
   }
 
-  reader.close();
   saveProgress(ctx.progress);
 }
 
@@ -421,8 +433,9 @@ async function mainMenu() {
   const { words, lemmas } = loadAll();
   const progress = loadProgress();
   const ctx = { words, lemmas, progress, score: new ScoreTracker() };
+  currentProgress = progress;   // 供 SIGINT 处理器保存
 
-  const reader = makeReader();
+  const reader = getReader();
 
   while (true) {
     clearScreen();
@@ -458,6 +471,18 @@ async function mainMenu() {
 
 // ============ 启动 ============
 if (require.main === module) {
+  // Ctrl+C：保存进度后干净退出，不留残缺终端状态
+  let quitting = false;
+  _gracefulExit = () => {
+    if (quitting) process.exit(1);
+    quitting = true;
+    try { saveProgress(currentProgress || loadProgress()); } catch (e) { /* 忽略 */ }
+    try { if (_reader) _reader.close(); } catch (e) { /* 忽略 */ }
+    process.stdout.write('\n\n  La revedere! 👋\n\n');
+    process.exit(0);
+  };
+  process.on('SIGINT', _gracefulExit);
+
   mainMenu().catch(err => {
     console.error('\n发生错误：', err && err.message ? err.message : err);
     process.exit(1);

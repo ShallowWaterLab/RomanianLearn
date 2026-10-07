@@ -31,6 +31,20 @@
 - 进度文件原写在安装目录（可能只读）→ 改到 `~/.romanianlearn/`
 - 原「频率射击」用裸 stdin raw mode 与 readline 冲突，会吞键 → 统一用 readline
 - 缺词库时原为未捕获异常堆栈 → 改为友好提示并退出码 1
+- `install.sh` 原先只打印 PATH 提示而不写入 → 改为真的写入 `.bashrc`/`.zshrc`/`.profile`
+- `install.sh` 在只有 `nodejs` 命令的系统上直接失败 → 改为自动软链为 `node`
+
+### 修复记录（用户实测反馈）
+- **按一次键出现两个相同字母**：主菜单与玩法各创建了一个 readline 实例，两个实例同时回显按键。
+  修复：全进程共用唯一 readline 实例（`getReader()`），玩法退出时不关闭它，仅在进程退出时关闭。
+- **Ctrl+C 丢失进度**：readline 处于 terminal 模式时会自行吞掉 Ctrl+C，只在 `process` 上监听 `SIGINT` 收不到。
+  修复：同时把监听挂在 readline 实例上，退出前保存进度。
+
+### 测试
+- `tools/test_run.js` — 管道驱动 8 用例（出题判定、计分落盘、生词移除、缺词库报错）
+- `tools/test_pty.py` — 真实 pty 驱动 4 组用例（**按键回显**、模式切换、完整回合、Ctrl+C 退出）
+  - 回显类 bug 只有 pty 能测出：stdin 不是 tty 时 readline 不做回显，管道测不到
+  - 必须「等预期内容出现」而非固定 sleep：不同机器启动速度差异会造成假失败
 
 ### 待办
 - [ ] 句子拼装模板需要扩充
