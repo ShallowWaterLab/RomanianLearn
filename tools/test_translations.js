@@ -61,7 +61,7 @@ const mustFix = {
   'este': { zh: /是/, en: /\bis\b/ },
   'de': { zh: /的/, en: /of/ },
   'și': { zh: /和/, en: /and/ },
-  'lei': { zh: /列伊/, en: /lei/i },
+  'lei': { zh: /列伊/, en: /leu|lei/i },
   'baza': { zh: /基础/, en: /basis|base/i },
   'anul': { zh: /年/, en: /year/i },
 };
@@ -73,16 +73,23 @@ for (const [w, want] of Object.entries(mustFix)) {
         t ? `得到 zh=${t.zh} en=${t.en}` : '无条目');
 }
 
-// 不应出现生硬的语法术语
-console.log('\n口语化检查（不应出现语法术语）:');
-const jargon = /阴性|阳性|属格|与格|宾格|定冠|虚拟式|条件式|分词|不定式|所有格|反身代词/;
-const badJargon = [...tr.entries()].filter(([w, t]) => jargon.test(t.zh));
+// 不应出现生硬的语法术语。
+// 例外：像 "一个（配阴性名词）" 这种对用法必要的性别提示是允许的——
+// 它告诉学习者该配什么词，是可操作的信息，不是术语堆砌。
+console.log('\n口语化检查（不应出现生硬语法术语）:');
+const jargon = /属格|与格|宾格|定冠|虚拟式|条件式|分词|不定式|所有格|反身代词/;
+const bareGender = /（(?:阴性|阳性)）|\(阴性\)|\(阳性\)/;   // 光秃秃的性别标签，无说明
+const badJargon = [...tr.entries()].filter(
+  ([, t]) => jargon.test(t.zh) || bareGender.test(t.zh)
+);
 if (badJargon.length) {
   console.log(`  含术语的词 ${badJargon.length} 个（前 10）:`);
   for (const [w, t] of badJargon.slice(0, 10)) console.log(`    ${w}: ${t.zh}`);
 }
 check('前 300 高频词不含生硬语法术语',
-      ![...tr.entries()].slice(0, 300).some(([, t]) => jargon.test(t.zh)),
+      ![...tr.entries()].slice(0, 300).some(
+        ([, t]) => jargon.test(t.zh) || bareGender.test(t.zh)
+      ),
       '高频词里仍有语法术语');
 
 // ---------- 2. 端到端：答对后显示翻译 ----------

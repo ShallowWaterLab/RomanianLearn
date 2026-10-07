@@ -1,7 +1,7 @@
-de	的	of
+de	从；的	of, from
 și	和；也	and
 în	在…里	in
-din	从…里	from
+din	从…里	from, out of
 la	到；在	to, at
 care	哪个；那个	which, who
 cu	跟…一起	with
@@ -34,11 +34,11 @@ prevăzute	规定的	stipulated
 după	…之后	after
 vor	会（他们）	they will
 ce	什么	what
-unei	一个	a (fem.)
+unei	一个（配阴性名词）	a (with feminine nouns)
 cazul	案件；情况	the case
 trebuie	得；必须	must
 data	日期	date
-unui	一个	a (masc.)
+unui	一个（配阳性名词）	a (with masculine nouns)
 am	我有	I have
 oficial	官方的	official
 monitorul	官方公报	the official gazette
@@ -104,7 +104,7 @@ legea	法律	the law
 prevederilor	规定的	of the provisions
 când	什么时候	when
 guvernului	政府的	of the government
-lei	列伊（货币）	lei (currency)
+lei	列伊（货币）	leu (currency)
 respectiv	分别	respectively
 cum	怎么	how
 fiind	作为	being
@@ -119,88 +119,733 @@ modificat	修改过的	amended
 iunie	六月	June
 putea	能够	could
 anul	这一年；年份	the year
-noi	我们	we
-aceasta	这个	this
-acestea	这些	these
-aceștia	这些	these
-eu	我	I
-tu	你	you
-mă	我	me
-te	你	you
-îl	他	him
 îi	给他们	to them
-său	他的	his
-sa	她的	her
-meu	我的	my
-tău	你的	your
-nostru	我们的	our
-tot	全部；仍然	all, still
-toți	所有人	all
-alt	另一个	other
-unele	一些	some
-deci	所以	so
-însă	然而	however
-totuși	不过	however
-doar	只	only
-chiar	甚至；真的	even, really
-foarte	非常	very
-prea	太	too
-multe	很多	many
-destul	够了	enough
-aproape	差不多；近	almost, near
-departe	远	far
-mereu	总是	always
-niciodată	从不	never
-uneori	有时	sometimes
-adesea	经常	often
-apoi	然后	then
-încă	还	still
-deja	已经	already
-abia	刚刚；才	barely, just
-printre	在…中间	among
-lângă	在…旁边	next to
-peste	在…上面；超过	over
-contra	反对	against
-până	直到	until
-înainte	以前；往前	before, ahead
-către	朝向	toward
-spre	朝向	towards
-acesta	这个	this
-aceea	那个	that
-acela	那个	that
-astăzi	今天	today
-mâine	明天	tomorrow
-ieri	昨天	yesterday
-an	年	year
-zi	天	day
-timp	时间	time
-om	人	person
-oameni	人们	people
-lume	世界	world
-loc	地方	place
-fel	方式	way, kind
-număr	数字	number
-nume	名字	name
-lucru	事情	thing
-lucruri	事情（复数）	things
-drept	权利；对的	right
-lege	法律	law
-guvern	政府	government
-țară	国家	country
-țara	国家	the country
-statul	国家	the state
-articol	条款；文章	article
-alineat	（法条）段	paragraph
-prevedere	规定	provision
+persoane	人们	people
+vedere	看法；视野	view, sight
+asigurări	保险	insurance
 inclusiv	包括	including
-exclusiv	只；专	exclusively
-întrucât	由于	because
-deoarece	因为	because
-atunci	那时候	then
+aceste	这些	these
+timp	时间	time
+mă	我	me
+noi	我们	we
+publică	公布	public (verb: publishes)
+anexa	附件	annex
+multe	很多	many
+valoarea	价值	the value
+spre	朝向	towards
+acestuia	这个的	of this
+modificările	修改	the amendments
+tot	全部；仍然	all, still
+fiscal	财政的	fiscal
+ulterioare	之后的	subsequent
+unde	哪里	where
+cea	那个	that
+cât	多少	how much
+prevederile	规定	the provisions
+doar	只	only
+îl	他	him
+domeniul	领域	the field
+asemenea	同样	likewise
+sale	她的	her
+chiar	甚至；真的	even, really
+drept	权利；对的	right
+muncă	工作	work
+acestea	这些	these
+sociale	社会的	social
+activitatea	活动	the activity
+celor	那些的	of those
+numărul	数字	the number
+an	年	year
+sa	她的	her
+aplică	适用	applies
+general	一般；总的	general
+necesare	必要的	necessary
+lege	法律	law
+urgență	紧急	emergency
+nici	也不	not even
+perioada	时期	the period
+prevăzut	规定的	stipulated
+atât	如此；那么	so much
+ii	二（罗马数字）	II (Roman numeral)
+publicat	已公布的	published
+foarte	非常	very
+ianuarie	一月	January
+ea	她	she
+cei	那些	those
+zi	天	day
+ministerul	部	the ministry
+său	他的	his
+membru	成员	member
+stabilite	既定的	established
+luni	星期一；月份	Monday, months
+acesta	这个	this
+octombrie	十月	October
+bine	好	well
+următorul	以下的	the following
+aceasta	这个	this
+partea	部分	the part
+ordin	命令；次序	order
+național	国家的	national
+lucru	事情	thing
+nivelul	水平	the level
+te	你	you
+către	朝向	toward
+consiliului	委员会的	of the council
+codul	法典；代码	the code
+dreptul	权利	the right
+legale	合法的	legal
+ministerului	部的	of the ministry
+fac	我做	I do
+completările	补充	the completions
+situația	情况	the situation
+bază	基础	base
+august	八月	August
+martie	三月	March
+naționale	国家的	national
+loc	地方	place
+public	公开的	public
+noiembrie	十一月	November
+cuprins	包含；目录	content (contained)
+transport	运输	transport
+special	特别的	special
+făcut	做的	done
+prevăzută	规定的	stipulated
+specialitate	专业	specialty
+acesteia	这个的	of this
+specifice	特定的	specific
+urmează	接下来	follows
+există	存在	exists
+altă	别的	other
+nou	新的	new
+având	拥有	having
+aprilie	四月	April
+juridice	法律的	legal
+financiare	财政的	financial
+activități	活动	activities
+produse	产品	products
+reprezintă	代表	represents
+activitate	活动	activity
+aferente	相关的	related
+bugetul	预算	the budget
+locale	地方的	local
+una	一个	one (fem.)
+urmare	结果	consequence
+autor	作者	author
+unul	一个	one
+mg	毫克	milligram
+avut	拥有	had
+persoanelor	人们的	of the people
+informații	信息	information
+activității	活动的	of the activity
+statului	国家的	of the state
+septembrie	九月	September
+peste	在…上方；超过	over
+persoană	人	person
+obligația	义务	the obligation
+eu	我	I
+juridică	法律的	legal
+națională	国家的	national
+însă	然而	however
+același	同样的	the same
+capitolul	章节	the chapter
+persoanele	人们	the people
+trei	三个	three
+județul	县	the county
+europene	欧洲的	European
+nivel	水平	level
+aplicarea	应用	the application
+acestor	这些的	of these
+altor	其他的	other
+date	数据	data
+control	控制	control
+prezentului	现在的	of the present
+contract	合同	contract
+ci	而是	but
+plată	付款	payment
+generale	一般的	general
+aplicare	应用	application
+află	得知	learns
+materiale	材料	materials
+prezenta	展示	present (verb)
+condiții	条件	conditions
+prezentei	现在的	of the present
+perioadă	时期	period
+ordonanța	法令	the ordinance
+acum	现在	now
+referitoare	关于	regarding
+prima	首先	first (verb: prevails)
+serviciilor	服务的	of the services
+efectuate	已执行的	performed
+alt	别的	other
+contractului	合同的	of the contract
+februarie	二月	February
+acestei	这个的	of this
+apoi	然后	then
+erau	曾是（复数）	were
+tip	类型	type
+vă	你们	you (pl.)
+unic	唯一的	unique
+împotriva	反对	against
+ministrului	部长的	of the minister
+personal	个人的	personal
+tuturor	所有人的	of all
+măsuri	措施	measures
+fizice	身体的	physical
+constituie	构成	constitutes
+venituri	收入	income
+fel	方式；种类	way, kind
+respectarea	遵守	the observance
+acestui	这个的	of this
+dată	日期；时候	date, time
+sistemul	系统	the system
+consiliul	委员会	the council
+comisia	委员会	the commission
+comisiei	委员会的	of the commission
+domiciliul	住所	the residence
+utilizate	已使用的	used
+aflate	处于…的	located, being
+completă	完整的	complete
+cărora	他们的	whose, to whom
+finanțare	资金；融资	funding
+agenția	机构	the agency
+agenției	机构的	of the agency
+intrării	进入的	of the entry
+română	罗马尼亚语	Romanian (language)
+român	罗马尼亚人	Romanian
+casa	房子	house, home
+mici	小的	small
+altele	其他的	others
+nimic	没什么	nothing
+iv	四（罗马数字）	IV (Roman numeral)
+iii	三（罗马数字）	III (Roman numeral)
+ro	罗马尼亚（国家代码）	Romania (country code)
+com	委员会（缩写）	committee (abbrev.)
+the	（英语冠词）	the
+si	和（无变音写法）	and
+sînt	是（旧拼写）	are
+george	乔治	George
+gheorghe	格奥尔基	Gheorghe
+nicolae	尼古拉	Nicolae
+mihai	米哈伊	Mihai
+ia	拿；取	takes
+apar	出现	appear
+continuă	继续	continues
+completează	填写；补充	fills in
+ziua	白天；日	the day
+câte	多少个	how many
+obținute	已获得的	obtained
+punctele	要点；分数	the points
+consiliile	委员会（复数）	councils
+comisiile	委员会（复数）	commissions
+regulamentul	条例	the regulation
+hotărârea	裁决	the decision
+dezvoltarea	发展	the development
+utilizarea	使用	the use
+aprobarea	批准	the approval
+încheierea	缔结	the conclusion
+semnarea	签署	the signing
+modificarea	修改	the amendment
+intrarea	进入	the entry
+ieșirea	退出	the exit
+situații	情况	situations
+instanța	法院	the court
+instanței	法院的	of the court
+hotărâri	裁决	decisions
+măsurile	措施	the measures
+condiţii	条件	conditions
+drepturile	权利	the rights
+obligaţii	义务	obligations
+autoritățile	当局	the authorities
+autorităţile	当局	the authorities
+documentele	文件	the documents
+solicitarea	请求	the request
+cererea	申请	the application
+cererii	申请的	of the application
+decizia	决定	the decision
+deciziei	决定的	of the decision
+avizul	意见	the opinion
+nota	备注	note
+anexele	附件	the annexes
+tabelul	表格	the table
+lista	名单	the list
+datele	数据	the data
+informaţii	信息	information
+condiţiile	条件	the conditions
+persoanei	人的	of the person
+societatea	公司	the company
+societății	公司的	of the company
+firma	公司	the firm
+angajații	员工	the employees
+salariaților	员工的	of the employees
+bugetului	预算的	of the budget
+veniturile	收入	the revenues
+cheltuieli	开支	expenses
+impozit	税	tax
+impozitul	税	the tax
+taxa	费用	fee
+taxele	费用	the fees
+plata	付款	the payment
+plății	付款的	of the payment
+factura	发票	the invoice
+facturile	发票	the invoices
+contractul	合同	the contract
+contractele	合同（复数）	the contracts
+clauzele	条款	the clauses
+termenul	期限	the deadline
+termenii	期限（复数）	the deadlines
+procedura	程序	the procedure
+procedurii	程序的	of the procedure
+metoda	方法	the method
+sistem	系统	system
+sisteme	系统（复数）	systems
+procesul	过程	the process
+proces	过程	process
+rezultatul	结果	the result
+rezultate	结果	results
+efectul	效果	the effect
+efectele	效果（复数）	the effects
+cauza	原因	the cause
+scopul	目的	the purpose
+obiectivul	目标	the objective
+programul	计划	the program
+proiectul	项目	the project
+proiecte	项目（复数）	projects
+etapa	阶段	the stage
+gradul	程度	the degree
+prețul	价格	the price
+costul	成本	the cost
+suma	金额	the amount
+sumele	金额	the amounts
+procentul	百分比	the percentage
+cifra	数字	the figure
+totalul	总数	the total
+media	平均	the average
+maxim	最大	maximum
+minim	最小	minimum
+publicării	出版的	of the publication
+mijloace	手段；方法	means
+operațiuni	操作；运营	operations
+direcția	方向；部门	the direction, the directorate
+funcționează	运行；运作	works, functions
+doilea	第二	second
+dă	给	gives
+curții	法院的	of the court
+tva	增值税（缩写）	VAT
+referă	提及	refers to
+spun	说	say
+jo	星期四	Thursday
+dezvoltării	发展的	of the development
+nefiind	不是	not being
+recomandări	建议	recommendations
+ue	欧盟（缩写）	EU
+decît	比	than
+semnat	签署的	signed
+aplicării	应用的	of the application
+et	等	etc.
+paraclinice	辅助检查的	paraclinical
+finanțarea	资助	the funding
+km	公里	kilometer
+operațiunile	操作	the operations
+dorești	你想	you want
+mijloacelor	手段的	of the means
+înregistrării	登记的	of the registration
+ocazia	场合	the occasion
+împărtășite	分享的	shared
+mp	议员	MP (member of parliament)
+postare	帖子	post
+mijloacele	手段	the means
+poți	你能	you can
+apariția	出现	the appearance
+mergându	走着	walking
+mm	毫米	millimeter
+rutier	公路的	road (adj.)
+adaugă	添加	adds
+monitorizare	监控	monitoring
+tel	电话	telephone
+urmărire	跟踪	tracking
+cît	比	than
+îndeplinească	履行	fulfill
+încadrarea	归类	the classification
+numește	称为	is called
+încasate	收到的	received (money)
+cost	成本	cost
+monitorizarea	监控	the monitoring
+superioară	上级的	superior
+lasă	留下	leaves
+direcțiile	方向	the directions
+auto	汽车	car
+putin	一点	a little
+www	万维网	WWW
+infracțiuni	犯罪	offences
+dorește	他想	he wants
+comunicat	公报	communiqué
+primește	收到	receives
+efectueze	执行	carry out
+sua	美国（缩写）	USA
+urmărirea	跟踪	the tracking
+ha	哈	ha
+costurile	成本	the costs
+depășească	超过	exceed
+analizează	分析	analyzes
+accizabile	应征税的	exciseable
+provenite	来自的	originating
+finanțării	资助的	of the funding
+preuniversitar	大学前的	pre-university
+facem	我们做	we do
+rog	请求	I request
+găsește	找到	finds
+achiziționate	已购买的	purchased
+formulate	表述的	formulated
+prestate	提供的	rendered (services)
+srl	有限责任公司（缩写）	LLC
+urmăririi	跟踪的	of the tracking
+controlează	控制	controls
+formează	组成	forms
+anumitor	某些的	of certain
+rutiere	公路的	road (adj.)
+treilea	第三	third
+cm	厘米	centimeter
+infrastructurii	基础设施的	of the infrastructure
+consiliilor	委员会的	of the councils
+informatic	信息学的	computer-related
+specificate	指定的	specified
+stabilirii	确定的	of the determination
+folosește	使用	uses
+ex	前	former
+place	喜欢	is pleasing
+per	每	per
+internet	互联网	internet
+prelucrarea	处理	the processing
+infracțiune	犯罪	offence
+prelucrare	处理	processing
+footnote	脚注	footnote
+interzisă	被禁止的	forbidden
+așteaptă	等待	waits
+ponta	蓬塔	Ponta (surname)
+costuri	成本	costs
+costurilor	成本的	of the costs
+informeze	通知	inform
+privatizare	私有化	privatization
+decontare	报销	settlement
+creează	创建	creates
+ministerelor	各部的	of the ministries
+creșterii	增长的	of the growth
+rapoarte	报告	reports
+comunicate	公报	communiqués
+informatice	信息学的	IT-related
+doamne	女士	lady (vocative)
+destinația	目的地	the destination
+avans	预付款	advance
+înscriși	注册的	registered
+suportate	承担的	borne
+decontării	报销的	of the settlement
+necorporale	无形的	intangible
+curți	院子	courtyards
+autovehicule	机动车	motor vehicles
+populare	殖民	colonization
+funcționarii	公务员	the civil servants
+inspectoratul	监察局	the inspectorate
+intenția	意图	the intention
+decontează	报销	reimburses
+plătească	支付	pay
+încetării	终止的	of the termination
+aminte	记得	remembrance
+recomandată	挂号的	registered (mail)
+urmărit	被通缉的	wanted (by police)
+rapoartele	报告	the reports
+decontarea	报销	the settlement
+comparativ	比较地	comparatively
+semnată	签署的	signed
+spui	你说	you say
+semnate	签署的	signed
+interioare	内部的	interior
+intelectuală	智力的	intellectual
+intracomunitare	欧盟内的	intra-Community
+funcționari	公务员	civil servants
+semnării	签署的	of the signing
+restante	剩余的	outstanding
+utilizeze	使用	use
+realizeze	实现	achieve
+interioară	内部的	interior
+componentă	组件	component
+tranzacționare	交易	trading
+multiple	多个的	multiple
+datoria	债务	the debt
+începerii	开始的	of the beginning
+intenționează	打算	intends
+păstreze	保留	keep
+încadrare	归类	classification
+bucăți	块	pieces
+alternative	替代方案	alternatives
+dosarele	卷宗	the files
+punerii	放置的	of the placing
+judecății	审判的	of the trial
+comunicată	公报	communiqué
+citește	读	reads
+operațiunii	操作的	of the operation
+educația	教育	the education
+vândute	已售的	sold
+livrate	已交付的	delivered
+turistice	旅游的	tourist (adj.)
+ierarhic	等级的	hierarchical
+raionul	区	the district
+inspectoratului	监察局的	of the inspectorate
+formulată	表述的	formulated
+piată	市场	market
+bazate	基于	based
+descris	描述的	described
+bazată	基于	based
+bord	船舷	board (of a ship)
+achiziția	采购	the acquisition
+decontate	已报销的	settled
+cîteva	几个	a few
+cotei	份额的	of the quota
+roșie	红色的	red
+tras	拉	pulled
+dosarelor	卷宗的	of the files
+subpct	分项	sub-item
+citarea	引用的	the citation
+funcționar	公务员	civil servant
+încît	以至于	so that
+puteți	你们能	you can
+and	和	and
+ml	毫升	milliliter
+gmail	谷歌邮箱	Gmail
+kg	千克	kilogram
+timișoara	蒂米什瓦拉	Timișoara
+constantin	康斯坦丁	Constantine
+vasile	瓦西里	Vasile
+mircea	米尔恰	Mircea
+ștefan	什特凡	Ștefan
+facebook	脸书	Facebook
+issn	国际标准刊号（缩写）	ISSN
+google	谷歌	Google
+pinterest	拼趣	Pinterest
+linkedin	领英	LinkedIn
+disqus	Disqus（评论系统）	Disqus
+franța	法国	France
+dan	丹	Dan
+victor	维克托	Victor
+to	到	to
+băsescu	伯塞斯库	Băsescu
+timiș	蒂米什	Timiș
+petru	彼得鲁	Petru
+col	上校	colonel
+petre	彼得	Petre
+en	英语（缩写）	English (abbrev.)
+cnas	国家医保局（缩写）	CNAS (health insurance)
+suceava	苏恰瓦	Suceava
+daniel	丹尼尔	Daniel
+cristian	克里斯蒂安	Cristian
+xix	十九（罗马数字）	XIX
+rd	路（缩写）	road (abbrev.)
+psd	社会民主党（缩写）	PSD (party)
+pnl	国家自由党（缩写）	PNL (party)
+emil	埃米尔	Emil
+xx	二十（罗马数字）	XX
+pdl	民主党（缩写）	PDL (party)
+on	开	on
+john	约翰	John
+xi	十一（罗马数字）	XI
+grigore	格里戈雷	Grigore
+lucian	卢奇安	Lucian
+dl	先生	Mr.
+web	网络	web
+sc	股份公司（缩写）	JSC (abbrev.)
+xii	十二（罗马数字）	XII
+ba	巴	Ba
+marian	马里安	Marian
+tv	电视	TV
+compr	购买（缩写）	purchase (abbrev.)
+hiv	艾滋病毒	HIV
+lt	中尉	lieutenant
+dci	为什么（缩写）	why (abbrev.)
+roma	罗马	Rome
+anre	能源监管局（缩写）	ANRE (energy regulator)
+press	新闻	press
+teodor	特奥多尔	Teodor
+university	大学	university
+iso	国际标准化组织（缩写）	ISO
+gabriel	加布里埃尔	Gabriel
+robert	罗伯特	Robert
+sorin	索林	Sorin
+ron	罗马尼亚列伊（货币代码）	RON (currency)
+cristina	克里斯蒂娜	Cristina
+ploiești	普洛耶什蒂	Ploiești
+nc	无评论（缩写）	no comment
+caragiale	卡拉贾莱	Caragiale
+grecia	希腊	Greece
+mihaela	米哈伊拉	Mihaela
+von	冯	von
+barbu	巴尔布	Barbu
+it	信息技术（缩写）	IT
+is	雅西（县）	Iași (county)
+amtsgericht	（德语）地方法院	German local court
+ix	九（罗马数字）	IX
+ți	给你	to you
+stabilească	确定	determine
+http	超文本传输协议	HTTP
+furnizeze	提供	supply
+știm	我们知道	we know
+exercite	练习	practice
+medie	平均；中等	average, medium
+mediu	环境；中等	environment, medium
+mediul	环境	the environment
+mediului	环境的	of the environment
+membre	成员	members
+membrii	成员们	the members
+membrilor	成员的	of the members
+locul	地方	the place
+locului	地方的	of the place
+dat	给定的	given
+ales	选定的	chosen
+aleasă	选定的	chosen
+toți	所有人	all, everyone
+toată	整个	the whole
+încă	还	still, yet
+părți	部分；各方	parts, parties
+părțile	部分	the parts
+introdus	引入的	introduced
+evaluare	评估	evaluation
+asta	这个	this
+persoana	这个人	the person
+localitatea	地方	the locality
+numele	名字	the name
+autoritatea	当局	the authority
+faptul	事实	the fact
+învățământ	教育	education
+comerciale	商业的	commercial
+tehnice	技术的	technical
+autorului	作者的	of the author
+urmă	足迹	trace
 așa	这样	so, like this
-astfel încât	以至于	so that
-prin urmare	因此	therefore
-de asemenea	也	also
-în plus	另外	moreover
-cel puțin	至少	at least
-cel mult	至多	at most
+anului	这一年的	of the year
+mari	大的	large
+punct	点	point
+natură	自然	nature
+medicală	医学的	medical
+uniunii	联盟的	of the union
+credit	信用；贷款	credit, loan
+prezentul	现在的	the present
+corespunzător	相应的	corresponding
+lucrărilor	工程的	of the works
+formă	形式	form
+sediul	总部	the headquarters
+dispozițiile	规定	the provisions
+apă	水	water
+scris	书面	written
+cerere	申请	application
+țară	国家	country
+produselor	产品的	of the products
+asigură	确保	ensures
+social	社会的	social
+aprobă	批准	approves
+personalului	人员的	of the staff
+consideră	认为	considers
+ordinul	命令；次序	the order
+realizează	实现	achieves
+mine	我	me
+direct	直接	direct
+sistemului	系统的	of the system
+proprii	自己的	own
+mea	我的	my
+primul	第一个	the first
+aceea	那个	that
+dispozițiilor	规定的	of the provisions
+viața	生活；生命	life
+viață	生活；生命	life
+desfășoară	开展	carries out
+speciale	特别的	special
+menționate	提到的	mentioned
+acord	协议	agreement
+număr	数字	number
+autorilor	作者们的	of the authors
+administrației	行政的	of the administration
+momentul	时刻	the moment
+stabilește	确定	establishes
+ceva	某事	something
+spune	说	says
+modifică	修改	modifies
+bunuri	商品	goods
+anumite	某些	certain
+fiscale	财政的	fiscal
+generală	一般的	general
+doi	二	two
+ore	小时	hours
+publicației	出版物的	of the publication
+societăți	公司	companies
+ordine	秩序	order
+bunurile	商品	the goods
+reglementărilor	规章的	of the regulations
+fondurilor	基金的	of the funds
+înainte	以前；向前	before, ahead
+eliminarea	消除	the elimination
+dispoziția	规定	the provision
+rând	行；排	row, turn
+începutul	开始	the beginning
+editura	出版社	the publishing house
+jumătate	一半	half
+participare	参与	participation
+fondul	基金	the fund
+normelor	规范的	of the norms
+întregime	整体	entirety
+funcție	职能；职务	function, position
+secretar	秘书	secretary
+fiica	女儿	the daughter
+nume	名字	name
+maria	玛丽亚	Maria
+astăzi	今天	today
+utilizează	使用	uses
+înțelege	理解	understands
+cred	我相信	I believe
+pregătire	准备；培训	preparation, training
+ulterior	后来	later
+datorită	由于	thanks to
+întreaga	整个	the whole
+începe	开始	begins
+afaceri	生意	business
+proiect	项目	project
+unitate	单位	unit
+îndeplinește	履行	fulfills
+încheiate	已缔结的	concluded
+fond	基金	fund
+alta	别的	other
+domeniu	领域	domain, field
+tale	你的	your
+internațional	国际的	international
+departe	远	far
+tine	你	you
+știe	知道	knows
+proprie	自己的	own
+ni	你	you
+of	（英语介词）	of
+române	罗马尼亚的	Romanian (fem. pl.)
+externe	外部的	external
+familiei	家庭的	of the family
+europeană	欧洲的	European
+vreunui	某个的	of some
+uneia	一个的	of one
+unuia	一个的	of one
+simple	简单的	simple
+completa	完整的	complete
+asociată	联合的	associated
+feminin	女性的	feminine
+masculin	男性的	masculine
+otoman	奥斯曼的	Ottoman
+însoțitor	同伴	companion
+alba	白色的	white
+ileană	玫瑰金龟	rose chafer
+adus	带来的	brought
+înțeles	理解的	understood
+ținut	保持的	held
+transmis	传送的	sent
+înțelesul	含义	the meaning
+descoperit	发现的	discovered
+construit	建造的	built
+câștigat	赢得的	won
+construită	建造的	built
+lucrat	工作的	worked
+construite	建造的	built
+prins	抓住的	caught
+transmisă	传送的	sent
+iluminat	照亮的	lit
