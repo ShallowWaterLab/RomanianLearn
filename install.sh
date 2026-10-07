@@ -16,12 +16,20 @@ echo "=============================="
 
 # ---------- 1. 检查 Node.js ----------
 if ! command -v node >/dev/null 2>&1; then
-  echo "❌ 未找到 Node.js。"
-  echo "   请先安装 Node.js 18+："
-  echo "     Ubuntu/Debian : sudo apt install nodejs"
-  echo "     macOS         : brew install node"
-  echo "     官网          : https://nodejs.org"
-  exit 1
+  # Debian/Ubuntu 包名是 nodejs，命令可能叫 nodejs 而非 node
+  if command -v nodejs >/dev/null 2>&1; then
+    mkdir -p "${BIN_DIR}"
+    ln -sf "$(command -v nodejs)" "${BIN_DIR}/node"
+    export PATH="${BIN_DIR}:$PATH"
+    echo "ℹ️  已把 nodejs 链接为 node"
+  else
+    echo "❌ 未找到 Node.js。"
+    echo "   请先安装 Node.js 18+："
+    echo "     Ubuntu/Debian : sudo apt install nodejs"
+    echo "     macOS         : brew install node"
+    echo "     官网          : https://nodejs.org"
+    exit 1
+  fi
 fi
 echo "✅ Node.js $(node --version)"
 
@@ -58,14 +66,27 @@ exec node "${INSTALL_DIR}/RomanianLearn.js" "\$@"
 EOF
 chmod +x "${BIN_DIR}/${CMD_NAME}"
 
-# ---------- 5. 检查 PATH ----------
+# ---------- 5. 确保 PATH ----------
+PATH_LINE="export PATH=\"${BIN_DIR}:\$PATH\""
 if ! echo ":$PATH:" | grep -q ":${BIN_DIR}:"; then
+  # 真的写进 shell 配置文件，而不只是打印提示
+  added_to=""
+  for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile"; do
+    [ -e "$rc" ] || continue
+    if ! grep -qF "${BIN_DIR}" "$rc" 2>/dev/null; then
+      printf '\n# added by RomanianLearn installer\n%s\n' "$PATH_LINE" >> "$rc"
+      added_to="${added_to} ${rc}"
+    fi
+  done
+  # 若三个文件都不存在，至少建一个 .profile
+  if [ -z "$added_to" ]; then
+    printf '\n# added by RomanianLearn installer\n%s\n' "$PATH_LINE" >> "${HOME}/.profile"
+    added_to=" ${HOME}/.profile"
+  fi
+  export PATH="${BIN_DIR}:$PATH"
   echo ""
-  echo "⚠️  ${BIN_DIR} 不在你的 PATH 中。"
-  echo "   把下面这行加到 ~/.bashrc（或 ~/.zshrc）后重开终端："
-  echo ""
-  echo "     export PATH=\"${BIN_DIR}:\$PATH\""
-  echo ""
+  echo "ℹ️  已把 ${BIN_DIR} 写入:${added_to}"
+  echo "   当前终端已生效；新开终端也会生效。"
 fi
 
 echo ""
