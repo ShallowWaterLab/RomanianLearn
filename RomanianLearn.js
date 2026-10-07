@@ -189,11 +189,55 @@ function getReader() {
   return _reader;
 }
 
+// ============ 变音符号容错 ============
+// 普通键盘打不出 ă â î ș ț，因此比对时把变音符号折叠为基本字母，
+// 用户输入无符号形式（a i s t）同样判对。
+// 代价：少数词会因此无法区分（sau/său、ca/că），答对后回显正确拼写。
+const FOLD_MAP = {
+  'ă': 'a', 'â': 'a', 'î': 'i',
+  'ș': 's', 'ş': 's',          // 含 cedilla 变体以防外部数据
+  'ț': 't', 'ţ': 't',
+  'á': 'a', 'à': 'a', 'ã': 'a', 'ä': 'a',
+  'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+  'í': 'i', 'ì': 'i', 'ï': 'i',
+  'ó': 'o', 'ò': 'o', 'ô': 'o', 'ö': 'o',
+  'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
+};
+
+function foldDiacritics(s) {
+  let out = '';
+  for (const ch of s.toLowerCase()) {
+    out += FOLD_MAP[ch] !== undefined ? FOLD_MAP[ch] : ch;
+  }
+  return out;
+}
+
+// 折叠后是否等价
+function sameFolded(a, b) {
+  return foldDiacritics(a) === foldDiacritics(b);
+}
+
+// 答案本身是否含变音符号（用于提示用户注意拼写）
+function hasDiacritics(s) {
+  for (const ch of s.toLowerCase()) {
+    if (FOLD_MAP[ch] !== undefined) return true;
+  }
+  return false;
+}
+
 // ============ 通用回合处理 ============
 function judge(userAnswer, expected, progress, score, shownAnswer) {
-  const ok = userAnswer.toLowerCase() === expected.toLowerCase();
+  const exact = userAnswer.toLowerCase() === expected.toLowerCase();
+  // 无符号输入也判对（普通键盘友好）
+  const ok = exact || sameFolded(userAnswer, expected);
+
   if (ok) {
-    console.log('  ✅ 正确！');
+    if (exact) {
+      console.log('  ✅ 正确！');
+    } else {
+      // 用户用了无符号写法：判对，但把正确拼写显示出来帮助记忆
+      console.log(`  ✅ 正确！（无符号输入）正确拼写：${expected}`);
+    }
     score.hit();
     progress.totalCorrect++;
   } else {
@@ -211,7 +255,8 @@ function judge(userAnswer, expected, progress, score, shownAnswer) {
 async function modeFrequencyShoot(ctx) {
   clearScreen();
   printHeader('🎯 频率射击 — 常见词');
-  console.log('  看到单词后输入它，回车确认。输入 q 返回主菜单。\n');
+  console.log('  看到单词后输入它，回车确认。输入 q 返回主菜单。');
+  console.log('  ℹ️  打不出 ă â î ș ț 时，直接输入 a i s t 也算对。\n');
 
   const reader = getReader();
   let asked = 0;
@@ -249,7 +294,8 @@ function weightedPick(items) {
 async function modeGrammarVariants(ctx) {
   clearScreen();
   printHeader('📝 语法变体 — 词尾变化');
-  console.log('  给词根加上正确的词尾，输入完整形式。输入 q 返回。\n');
+  console.log('  给词根加上正确的词尾，输入完整形式。输入 q 返回。');
+  console.log('  ℹ️  打不出 ă â î ș ț 时，直接输入 a i s t 也算对。\n');
 
   // 罗语常见词尾变化（简化示意版）
   const variants = [
@@ -287,7 +333,8 @@ async function modeGrammarVariants(ctx) {
 async function modeListenSpell(ctx) {
   clearScreen();
   printHeader('🎧 听音识词 — 听发音拼写');
-  console.log('  听发音，输入你听到的单词。输入 q 返回。\n');
+  console.log('  听发音，输入你听到的单词。输入 q 返回。');
+  console.log('  ℹ️  打不出 ă â î ș ț 时，直接输入 a i s t 也算对。\n');
 
   const hasEspeak = (() => {
     try {
@@ -406,6 +453,12 @@ async function modeReview(ctx) {
       ctx.score.hit();
       ctx.progress.totalCorrect++;
       delete ctx.progress.wrongWords[word];
+    } else if (sameFolded(answer, word)) {
+      // 无符号输入也判对，但保留在生词本里多练一次
+      console.log(`  ✅ 正确！（无符号输入）正确拼写：${word}`);
+      console.log('     ℹ️  该词仍留在生词本，再练一次加深记忆');
+      ctx.score.hit();
+      ctx.progress.totalCorrect++;
     } else {
       console.log(`  ❌ 错误！正确答案：${word}`);
       ctx.score.miss();
@@ -489,4 +542,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { loadFreqTable, pickExisting, ScoreTracker, weightedPick };
+module.exports = { loadFreqTable, pickExisting, ScoreTracker, weightedPick, foldDiacritics, sameFolded, hasDiacritics };
