@@ -2,77 +2,114 @@
 /**
  * RomanianLearn — 罗马尼亚语学习工具
  * 单文件 Node 脚本，一条命令跑
- * 
+ *
  * 玩法模块：
- *   1. 频率射击 — 常见词快速浮出，输入字母消除
- *   2. 语法变体 — 同一词飘出不同词尾形态
+ *   1. 频率射击 — 常见词快速浮出，输入消除
+ *   2. 语法变体 — 同一词不同词尾形态
  *   3. 听音识词 — 播放发音，玩家拼写
- *   4. 句子拼装 — 先打关键词，再补全句子
+ *   4. 句子拼装 — 补全句子
  *   5. 生词复习 — 只刷之前打错的词
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const readline = require('readline');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
 
 // ============ 配置 ============
-const DATA_DIR = path.join(__dirname);
-const WORD_FREQ_FILE = path.join(DATA_DIR, 'corola_word_freq_gte10.tsv');
-const LEMMA_FREQ_FILE = path.join(DATA_DIR, 'corola_lemma_freq_gte10.tsv');
-const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json');
-const MAX_WORD_LEN = 30;
-const MIN_WORD_LEN = 3;
+const SCRIPT_DIR = __dirname;
+
+// 词库查找顺序：先内置精简词库，再回退到完整 CoRoLa 文件
+const WORD_CANDIDATES = [
+  path.join(SCRIPT_DIR, 'data', 'words.tsv'),
+  path.join(SCRIPT_DIR, 'corola_word_freq_gte10.tsv'),
+];
+const LEMMA_CANDIDATES = [
+  path.join(SCRIPT_DIR, 'data', 'lemmas.tsv'),
+  path.join(SCRIPT_DIR, 'corola_lemma_freq_gte10.tsv'),
+];
+
+// 进度写到用户目录，避免安装目录只读
+const PROGRESS_DIR = path.join(os.homedir(), '.romanianlearn');
+const PROGRESS_FILE = path.join(PROGRESS_DIR, 'progress.json');
+
+const MIN_WORD_LEN = 2;
+const MAX_WORD_LEN = 24;
+const WORD_LIMIT = 50000;
 
 // ============ 词库加载 ============
-function loadWordFreq(filePath, limit = 50000) {
-  const words = [];
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-  for (const line of lines) {
-    const parts = line.trim().split('\t');
-    if (parts.length >= 2) {
-      const word = parts[0].trim();
-      const freq = parseInt(parts[1], 10);
-      if (word && freq > 0 && word.length >= MIN_WORD_LEN && word.length <= MAX_WORD_LEN) {
-        words.push({ word, freq });
-      }
-    }
-    if (words.length >= limit) break;
+function pickExisting(candidates) {
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
   }
-  return words;
+  return null;
 }
 
-function loadLemmaFreq(filePath, limit = 50000) {
-  const lemmas = [];
+function loadFreqTable(filePath, keyName, limit = WORD_LIMIT) {
+  const items = [];
+  const seen = new Set();
   const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-  for (const line of lines) {
+  for (const line of content.split('\n')) {
     const parts = line.trim().split('\t');
-    if (parts.length >= 2) {
-      const lemma = parts[0].trim();
-      const freq = parseInt(parts[1], 10);
-      if (lemma && freq > 0 && lemma.length >= MIN_WORD_LEN && lemma.length <= MAX_WORD_LEN) {
-        lemmas.push({ lemma, freq });
-      }
-    }
-    if (lemmas.length >= limit) break;
+    if (parts.length < 2) continue;
+    const word = parts[0].trim();
+    const freq = parseInt(parts[1], 10);
+    if (!word || !Number.isFinite(freq) || freq <= 0) continue;
+    if (word.length < MIN_WORD_LEN || word.length > MAX_WORD_LEN) continue;
+    const key = word.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const item = {};
+    item[keyName] = key;
+    item.freq = freq;
+    items.push(item);
+    if (items.length >= limit) break;
   }
-  return lemmas;
+  return items;
+}
+
+function loadAll() {
+  const wordFile = pickExisting(WORD_CANDIDATES);
+  const lemmaFile = pickExisting(LEMMA_CANDIDATES);
+
+  if (!wordFile || !lemmaFile) {
+    console.error('\n❌ 找不到词库文件。\n');
+    console.error('  脚本会在以下位置查找词库：');
+    for (const p of WORD_CANDIDATES) console.error('    ' + p);
+    for (const p of LEMMA_CANDIDATES) console.error('    ' + p);
+    console.error('\n  如果你是从 GitHub 克隆的仓库，请确认 data/ 目录存在。');
+    console.error('  如需自行生成词库，见 README 的「词库数据」一节。\n');
+    process.exit(1);
+  }
+
+  const words = loadFreqTable(wordFile, 'word');
+  const lemmas = loadFreqTable(lemmaFile, 'lemma');
+  return { words, lemmas, wordFile, lemmaFile };
 }
 
 // ============ 进度保存 ============
 function loadProgress() {
   try {
     if (fs.existsSync(PROGRESS_FILE)) {
-      return JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf-8'));
+      const data = JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf-8'));
+      return {
+        wrongWords: data.wrongWords || {},
+        totalCorrect: data.totalCorrect || 0,
+        totalWrong: data.totalWrong || 0,
+      };
     }
-  } catch (e) { /* ignore */ }
-  return { wrongWords: {}, totalCorrect: 0, totalWrong: 0, sessions: 0 };
+  } catch (e) { /* 损坏则重置 */ }
+  return { wrongWords: {}, totalCorrect: 0, totalWrong: 0 };
 }
 
 function saveProgress(progress) {
-  fs.writeFileSync(PROGRESS_FILE, JSON.stringify(progress, null, 2), 'utf-8');
+  try {
+    fs.mkdirSync(PROGRESS_DIR, { recursive: true });
+    fs.writeFileSync(PROGRESS_FILE, JSON.stringify(progress, null, 2), 'utf-8');
+  } catch (e) {
+    // 进度保存失败不应中断游戏
+  }
 }
 
 // ============ 计分系统 ============
@@ -94,344 +131,327 @@ class ScoreTracker {
   }
   get accuracy() {
     const total = this.correct + this.wrong;
-    return total === 0 ? 0 : (this.correct / total * 100).toFixed(1);
+    return total === 0 ? '—' : (this.correct / total * 100).toFixed(1) + '%';
   }
-  display() {
-    console.log(`  ✅ ${this.correct}  ❌ ${this.wrong}  🔥 ${this.streak}  📊 ${this.accuracy}%`);
+  line() {
+    return `  ✅ ${this.correct}   ❌ ${this.wrong}   🔥 连击 ${this.streak}   📊 准确率 ${this.accuracy}`;
   }
 }
 
 // ============ 终端工具 ============
+const WIDTH = 52;
+
 function clearScreen() {
-  console.clear();
+  process.stdout.write('\x1b[2J\x1b[H');
 }
 
 function printHeader(title) {
-  const width = 50;
-  console.log('═'.repeat(width));
+  console.log('═'.repeat(WIDTH));
   console.log(`  ${title}`);
-  console.log('═'.repeat(width));
+  console.log('═'.repeat(WIDTH));
 }
 
-function printMenu(items) {
-  console.log();
-  items.forEach((item, i) => {
-    console.log(`  [${i + 1}] ${item}`);
+function randomOf(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// 统一的行输入接口：基于 readline，可靠且不会吞键
+function makeReader() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: process.stdin.isTTY,
   });
-  console.log(`  [0] 退出`);
-  console.log();
+  return {
+    ask: (q) => new Promise(resolve => rl.question(q, a => resolve((a || '').trim()))),
+    close: () => rl.close(),
+  };
 }
 
-function askQuestion(rl, question) {
-  return new Promise(resolve => {
-    rl.question(question, answer => resolve(answer.trim()));
-  });
+// ============ 通用回合处理 ============
+function judge(userAnswer, expected, progress, score, shownAnswer) {
+  const ok = userAnswer.toLowerCase() === expected.toLowerCase();
+  if (ok) {
+    console.log('  ✅ 正确！');
+    score.hit();
+    progress.totalCorrect++;
+  } else {
+    console.log(`  ❌ 错误！正确答案：${shownAnswer || expected}`);
+    score.miss();
+    progress.totalWrong++;
+    progress.wrongWords[expected.toLowerCase()] =
+      (progress.wrongWords[expected.toLowerCase()] || 0) + 1;
+  }
+  console.log(score.line());
+  return ok;
 }
 
-// ============ 游戏模块 ============
-
-// 模块 1: 频率射击
-async function modeFrequencyShoot(words, progress, score) {
+// ============ 模块 1: 频率射击 ============
+async function modeFrequencyShoot(ctx) {
   clearScreen();
-  printHeader('🎯 频率射击 — 常见词快速浮出');
-  console.log('  输入字母消除飘出的单词，按 Enter 确认');
-  console.log('  输入 q 返回主菜单\n');
+  printHeader('🎯 频率射击 — 常见词');
+  console.log('  看到单词后输入它，回车确认。输入 q 返回主菜单。\n');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  let running = true;
+  const reader = makeReader();
+  let asked = 0;
 
-  while (running) {
-    // 随机选一个词
-    const target = words[Math.floor(Math.random() * words.length)];
-    const word = target.word;
-    let input = '';
+  while (true) {
+    const item = weightedPick(ctx.words);
+    process.stdout.write(`  🎯 ${item.word}\n  ✏️  > `);
+    const answer = await reader.ask('');
+    asked++;
 
-    console.log(`\n  🎯 目标词: ${word}`);
-    process.stdout.write('  ✏️  输入: ');
-
-    // 读取用户输入
-    const answer = await new Promise(resolve => {
-      const onData = (data) => {
-        const str = data.toString();
-        if (str.includes('\n') || str.includes('\r')) {
-          process.stdin.removeListener('data', onData);
-          resolve(input);
-        } else if (str === '\x7f' || str === '\b') {
-          input = input.slice(0, -1);
-          process.stdout.write('\b \b');
-        } else if (str.length === 1 && /[a-zăâîșț]/i.test(str)) {
-          input += str.toLowerCase();
-          process.stdout.write(str.toLowerCase());
-        }
-      };
-      process.stdin.on('data', onData);
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-    });
-
-    process.stdin.setRawMode(false);
-
-    if (answer.toLowerCase() === 'q') {
-      running = false;
-      break;
-    }
-
-    if (answer.toLowerCase() === word.toLowerCase()) {
-      console.log('  ✅ 正确!');
-      score.hit();
-      progress.totalCorrect++;
-    } else {
-      console.log(`  ❌ 错误! 正确答案: ${word}`);
-      score.miss();
-      progress.totalWrong++;
-      progress.wrongWords[word] = (progress.wrongWords[word] || 0) + 1;
-    }
-    score.display();
+    if (answer.toLowerCase() === 'q') break;
+    judge(answer, item.word, ctx.progress, ctx.score);
+    if (asked % 10 === 0) saveProgress(ctx.progress);
+    console.log();
   }
 
-  rl.close();
-  saveProgress(progress);
+  reader.close();
+  saveProgress(ctx.progress);
 }
 
-// 模块 2: 语法变体
-async function modeGrammarVariants(lemmas, progress, score) {
+// 按频次加权抽取（高频词出现概率更高）
+function weightedPick(items) {
+  if (items.length <= 2000) return randomOf(items);
+  // 只在前 2000 高频词里做加权，避免长尾词几乎不出现
+  const pool = items.slice(0, 2000);
+  const total = pool.reduce((s, it) => s + Math.log(it.freq + 1), 0);
+  let r = Math.random() * total;
+  for (const it of pool) {
+    r -= Math.log(it.freq + 1);
+    if (r <= 0) return it;
+  }
+  return pool[0];
+}
+
+// ============ 模块 2: 语法变体 ============
+async function modeGrammarVariants(ctx) {
   clearScreen();
-  printHeader('📝 语法变体 — 词尾变形挑战');
-  console.log('  输入正确的词尾变体形式');
-  console.log('  输入 q 返回主菜单\n');
+  printHeader('📝 语法变体 — 词尾变化');
+  console.log('  给词根加上正确的词尾，输入完整形式。输入 q 返回。\n');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  let running = true;
-
-  // 罗语常见词尾变化规则
+  // 罗语常见词尾变化（简化示意版）
   const variants = [
-    { suffix: 'a', hint: '阴性单数定冠词' },
+    { suffix: 'ul', hint: '阳性单数·定冠词' },
+    { suffix: 'ului', hint: '阳性单数·属格/与格' },
+    { suffix: 'a', hint: '阴性单数·定冠词' },
     { suffix: 'i', hint: '复数' },
-    { suffix: 'e', hint: '阴性复数' },
-    { suffix: 'ul', hint: '阳性单数定冠词' },
-    { suffix: 'ului', hint: '阳性单数与格' },
+    { suffix: 'le', hint: '阴性复数·定冠词' },
   ];
 
-  while (running) {
-    const target = lemmas[Math.floor(Math.random() * lemmas.length)];
-    const lemma = target.lemma;
-    const variant = variants[Math.floor(Math.random() * variants.length)];
-    const answer = lemma + variant.suffix;
+  const reader = makeReader();
+  let asked = 0;
 
-    console.log(`\n  📝 词根: ${lemma}`);
-    console.log(`  💡 提示: ${variant.hint}`);
-    process.stdout.write('  ✏️  完整形式: ');
+  while (true) {
+    const lemma = randomOf(ctx.lemmas).lemma;
+    const v = randomOf(variants);
+    const expected = lemma + v.suffix;
 
-    const userAnswer = await askQuestion(rl, '');
+    console.log(`  📝 词根：${lemma}`);
+    console.log(`  💡 加「${v.suffix}」（${v.hint}）`);
+    process.stdout.write('  ✏️  完整形式 > ');
+    const answer = await reader.ask('');
 
-    if (userAnswer.toLowerCase() === 'q') {
-      running = false;
-      break;
-    }
-
-    if (userAnswer.toLowerCase().trim() === answer.toLowerCase()) {
-      console.log('  ✅ 正确!');
-      score.hit();
-      progress.totalCorrect++;
-    } else {
-      console.log(`  ❌ 错误! 正确答案: ${answer}`);
-      score.miss();
-      progress.totalWrong++;
-      progress.wrongWords[answer] = (progress.wrongWords[answer] || 0) + 1;
-    }
-    score.display();
+    asked++;
+    if (answer.toLowerCase() === 'q') break;
+    judge(answer, expected, ctx.progress, ctx.score, expected);
+    if (asked % 10 === 0) saveProgress(ctx.progress);
+    console.log();
   }
 
-  rl.close();
-  saveProgress(progress);
+  reader.close();
+  saveProgress(ctx.progress);
 }
 
-// 模块 3: 听音识词
-async function modeListenSpell(words, progress, score) {
+// ============ 模块 3: 听音识词 ============
+async function modeListenSpell(ctx) {
   clearScreen();
   printHeader('🎧 听音识词 — 听发音拼写');
-  console.log('  播放发音后输入你听到的单词');
-  console.log('  输入 q 返回主菜单\n');
+  console.log('  听发音，输入你听到的单词。输入 q 返回。\n');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  let running = true;
-
-  while (running) {
-    const target = words[Math.floor(Math.random() * words.length)];
-    const word = target.word;
-
-    // 尝试使用 espeak 播放发音
+  const hasEspeak = (() => {
     try {
-      execSync(`espeak -v ro "${word}" 2>/dev/null`, { stdio: 'ignore' });
-    } catch (e) {
-      console.log('  ⚠️  espeak 未安装，跳过发音');
-    }
+      execSync('command -v espeak', { stdio: 'ignore' });
+      return true;
+    } catch (e) { return false; }
+  })();
 
-    console.log(`\n  🎧 请听发音...`);
-    process.stdout.write('  ✏️  你听到的单词: ');
-
-    const userAnswer = await askQuestion(rl, '');
-
-    if (userAnswer.toLowerCase() === 'q') {
-      running = false;
-      break;
-    }
-
-    if (userAnswer.toLowerCase().trim() === word.toLowerCase()) {
-      console.log('  ✅ 正确!');
-      score.hit();
-      progress.totalCorrect++;
-    } else {
-      console.log(`  ❌ 错误! 正确答案: ${word}`);
-      score.miss();
-      progress.totalWrong++;
-      progress.wrongWords[word] = (progress.wrongWords[word] || 0) + 1;
-    }
-    score.display();
+  if (!hasEspeak) {
+    console.log('  ⚠️  未检测到 espeak，将只显示首字母提示。');
+    console.log('     安装后可听发音：sudo apt install espeak\n');
   }
 
-  rl.close();
-  saveProgress(progress);
+  const reader = makeReader();
+  let asked = 0;
+
+  while (true) {
+    const item = weightedPick(ctx.words);
+
+    if (hasEspeak) {
+      try {
+        execSync(`espeak -v ro -q "${item.word.replace(/"/g, '')}"`, { stdio: 'ignore' });
+        console.log('  🔊 （已播放发音）');
+      } catch (e) { /* 静默忽略 */ }
+    } else {
+      console.log(`  💡 提示：首字母「${item.word[0]}」，共 ${item.word.length} 个字母`);
+    }
+
+    process.stdout.write('  ✏️  你听到的单词 > ');
+    const answer = await reader.ask('');
+
+    asked++;
+    if (answer.toLowerCase() === 'q') break;
+    judge(answer, item.word, ctx.progress, ctx.score);
+    if (asked % 10 === 0) saveProgress(ctx.progress);
+    console.log();
+  }
+
+  reader.close();
+  saveProgress(ctx.progress);
 }
 
-// 模块 4: 句子拼装
-async function modeSentenceBuild(words, progress, score) {
+// ============ 模块 4: 句子拼装 ============
+async function modeSentenceBuild(ctx) {
   clearScreen();
   printHeader('🧩 句子拼装 — 补全句子');
-  console.log('  输入缺失的单词补全句子');
-  console.log('  输入 q 返回主菜单\n');
+  console.log('  输入缺失的单词补全句子。输入 q 返回。\n');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  let running = true;
-
-  // 简单句子模板
   const templates = [
-    { sentence: 'Eu ___ în România.', answer: 'locuiesc', hint: '居住' },
-    { sentence: 'Ea ___ o carte.', answer: 'citește', hint: '读' },
-    { sentence: 'Noi ___ la școală.', answer: 'mergem', hint: '去' },
-    { sentence: 'Tu ___ foarte bine.', answer: 'cânti', hint: '唱' },
-    { sentence: 'Ei ___ în parc.', answer: 'aleargă', hint: '跑' },
+    { sentence: 'Eu ___ în România.', answer: 'locuiesc', hint: '居住（我）' },
+    { sentence: 'Ea ___ o carte.', answer: 'citește', hint: '读（她）' },
+    { sentence: 'Noi ___ la școală.', answer: 'mergem', hint: '去（我们）' },
+    { sentence: 'Tu ___ foarte bine.', answer: 'cânți', hint: '唱（你）' },
+    { sentence: 'Ei ___ în parc.', answer: 'aleargă', hint: '跑（他们）' },
+    { sentence: 'Vreau ___ apă.', answer: 'o', hint: '不定冠词（阴性）' },
+    { sentence: 'El ___ un student.', answer: 'este', hint: '是（他）' },
+    { sentence: 'Mulțumesc ___ ajutor.', answer: 'pentru', hint: '为了 / 因为' },
   ];
 
-  while (running) {
-    const template = templates[Math.floor(Math.random() * templates.length)];
+  const reader = makeReader();
+  let asked = 0;
 
-    console.log(`\n  🧩 句子: ${template.sentence}`);
-    console.log(`  💡 提示: ${template.hint}`);
-    process.stdout.write('  ✏️  缺失的单词: ');
+  while (true) {
+    const t = randomOf(templates);
+    console.log(`  🧩 ${t.sentence}`);
+    console.log(`  💡 ${t.hint}`);
+    process.stdout.write('  ✏️  缺失的单词 > ');
+    const answer = await reader.ask('');
 
-    const userAnswer = await askQuestion(rl, '');
-
-    if (userAnswer.toLowerCase() === 'q') {
-      running = false;
-      break;
-    }
-
-    if (userAnswer.toLowerCase().trim() === template.answer.toLowerCase()) {
-      console.log('  ✅ 正确!');
-      score.hit();
-      progress.totalCorrect++;
-    } else {
-      console.log(`  ❌ 错误! 正确答案: ${template.answer}`);
-      score.miss();
-      progress.totalWrong++;
-      progress.wrongWords[template.answer] = (progress.wrongWords[template.answer] || 0) + 1;
-    }
-    score.display();
+    asked++;
+    if (answer.toLowerCase() === 'q') break;
+    judge(answer, t.answer, ctx.progress, ctx.score);
+    if (asked % 10 === 0) saveProgress(ctx.progress);
+    console.log();
   }
 
-  rl.close();
-  saveProgress(progress);
+  reader.close();
+  saveProgress(ctx.progress);
 }
 
-// 模块 5: 生词复习
-async function modeReview(progress, score) {
+// ============ 模块 5: 生词复习 ============
+async function modeReview(ctx) {
   clearScreen();
   printHeader('📚 生词复习 — 弱项巩固');
-  console.log('  只刷之前打错的词');
-  console.log('  输入 q 返回主菜单\n');
+  console.log('  只刷之前打错的词，答对即移出生词本。输入 q 返回。\n');
 
-  const wrongWords = Object.entries(progress.wrongWords);
-  if (wrongWords.length === 0) {
-    console.log('  🎉 没有生词需要复习！');
-    await new Promise(r => setTimeout(r, 2000));
+  if (Object.keys(ctx.progress.wrongWords).length === 0) {
+    console.log('  🎉 生词本是空的，先去别的模式练练吧！');
+    await sleep(1800);
     return;
   }
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  let running = true;
+  const reader = makeReader();
+  let asked = 0;
 
-  while (running) {
-    // 按错误次数排序，优先复习错误多的
-    wrongWords.sort((a, b) => b[1] - a[1]);
-    const [word, count] = wrongWords[Math.floor(Math.random() * Math.min(10, wrongWords.length))];
-
-    console.log(`\n  📚 生词: ${word} (错误 ${count} 次)`);
-    process.stdout.write('  ✏️  拼写: ');
-
-    const userAnswer = await askQuestion(rl, '');
-
-    if (userAnswer.toLowerCase() === 'q') {
-      running = false;
+  while (true) {
+    const entries = Object.entries(ctx.progress.wrongWords);
+    if (entries.length === 0) {
+      console.log('  🎉 生词本清空了！');
+      await sleep(1200);
       break;
     }
 
-    if (userAnswer.toLowerCase().trim() === word.toLowerCase()) {
-      console.log('  ✅ 正确! 该词已从生词本移除');
-      score.hit();
-      progress.totalCorrect++;
-      delete progress.wrongWords[word];
+    // 错得越多的越优先
+    entries.sort((a, b) => b[1] - a[1]);
+    const top = entries.slice(0, 10);
+    const [word, count] = randomOf(top);
+
+    console.log(`  📚 ${word}   （曾错 ${count} 次）`);
+    process.stdout.write('  ✏️  拼写 > ');
+    const answer = await reader.ask('');
+
+    asked++;
+    if (answer.toLowerCase() === 'q') break;
+
+    if (answer.toLowerCase() === word.toLowerCase()) {
+      console.log('  ✅ 正确！已移出生词本');
+      ctx.score.hit();
+      ctx.progress.totalCorrect++;
+      delete ctx.progress.wrongWords[word];
     } else {
-      console.log(`  ❌ 错误! 正确答案: ${word}`);
-      score.miss();
-      progress.totalWrong++;
+      console.log(`  ❌ 错误！正确答案：${word}`);
+      ctx.score.miss();
+      ctx.progress.totalWrong++;
+      ctx.progress.wrongWords[word] = count + 1;
     }
-    score.display();
+    console.log(ctx.score.line());
+    if (asked % 10 === 0) saveProgress(ctx.progress);
+    console.log();
   }
 
-  rl.close();
-  saveProgress(progress);
+  reader.close();
+  saveProgress(ctx.progress);
 }
 
 // ============ 主菜单 ============
+const MODES = [
+  { key: '1', label: '🎯 频率射击', desc: '常见词快速识别', run: modeFrequencyShoot },
+  { key: '2', label: '📝 语法变体', desc: '词尾变化练习', run: modeGrammarVariants },
+  { key: '3', label: '🎧 听音识词', desc: '听发音拼写', run: modeListenSpell },
+  { key: '4', label: '🧩 句子拼装', desc: '补全句子', run: modeSentenceBuild },
+  { key: '5', label: '📚 生词复习', desc: '弱项巩固', run: modeReview },
+];
+
 async function mainMenu() {
-  const words = loadWordFreq(WORD_FREQ_FILE, 50000);
-  const lemmas = loadLemmaFreq(LEMMA_FREQ_FILE, 50000);
+  const { words, lemmas } = loadAll();
   const progress = loadProgress();
-  const score = new ScoreTracker();
+  const ctx = { words, lemmas, progress, score: new ScoreTracker() };
 
-  console.log(`\n  已加载 ${words.length} 个常用词, ${lemmas.length} 个词根`);
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const reader = makeReader();
 
   while (true) {
     clearScreen();
     printHeader('🇷🇴 RomanianLearn — 罗马尼亚语学习工具');
-    console.log(`  总正确: ${progress.totalCorrect}  总错误: ${progress.totalWrong}  生词: ${Object.keys(progress.wrongWords).length}`);
+    console.log(`  词库：${words.length} 常用词 · ${lemmas.length} 词根`);
+    console.log(`  累计：正确 ${progress.totalCorrect} · 错误 ${progress.totalWrong} · 生词 ${Object.keys(progress.wrongWords).length}`);
     console.log();
-    printMenu([
-      '🎯 频率射击 — 常见词快速浮出',
-      '📝 语法变体 — 词尾变形挑战',
-      '🎧 听音识词 — 听发音拼写',
-      '🧩 句子拼装 — 补全句子',
-      '📚 生词复习 — 弱项巩固',
-    ]);
+    for (const m of MODES) {
+      console.log(`  [${m.key}] ${m.label} — ${m.desc}`);
+    }
+    console.log('  [0] 退出');
+    console.log();
 
-    const choice = await askQuestion(rl, '  请选择: ');
+    const choice = await reader.ask('  请选择 > ');
+    const mode = MODES.find(m => m.key === choice);
 
-    switch (choice) {
-      case '1': await modeFrequencyShoot(words, progress, score); break;
-      case '2': await modeGrammarVariants(lemmas, progress, score); break;
-      case '3': await modeListenSpell(words, progress, score); break;
-      case '4': await modeSentenceBuild(words, progress, score); break;
-      case '5': await modeReview(progress, score); break;
-      case '0':
-        console.log('\n  再见! La revedere! 👋\n');
-        rl.close();
-        process.exit(0);
-      default:
-        console.log('  无效选择，请重试');
-        await new Promise(r => setTimeout(r, 1000));
+    if (choice === '0' || choice.toLowerCase() === 'q') {
+      saveProgress(progress);
+      clearScreen();
+      console.log('\n  La revedere! 👋\n');
+      reader.close();
+      return;
+    }
+
+    if (mode) {
+      await mode.run(ctx);
+    } else {
+      console.log('  ⚠️  无效选择');
+      await sleep(800);
     }
   }
 }
@@ -439,9 +459,9 @@ async function mainMenu() {
 // ============ 启动 ============
 if (require.main === module) {
   mainMenu().catch(err => {
-    console.error('发生错误:', err);
+    console.error('\n发生错误：', err && err.message ? err.message : err);
     process.exit(1);
   });
 }
 
-module.exports = { loadWordFreq, loadLemmaFreq, loadProgress, saveProgress, ScoreTracker };
+module.exports = { loadFreqTable, pickExisting, ScoreTracker, weightedPick };

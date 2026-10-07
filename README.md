@@ -6,33 +6,39 @@
 
 ## ✨ 特性 / Features
 
-- **🎯 频率射击** — 常见词快速浮出，输入字母消除（认词/反应速度）
-- **📝 语法变体** — 同一词飘出不同词尾形态，全打对才消（词尾掌握）
-- **🎧 听音识词** — 播放发音，玩家拼写（听觉+拼写）
-- **🧩 句子拼装** — 先打关键词，再补全句子（语法搭配）
-- **📚 生词复习** — 只刷之前打错的词（弱项巩固）
+- **🎯 频率射击** — 常见词按频次加权浮出，输入拼写（认词 / 反应速度）
+- **📝 语法变体** — 给定词根和词尾，写出完整变形（词尾掌握）
+- **🎧 听音识词** — 播放发音，玩家拼写；无 espeak 时降级为首字母提示（听觉 + 拼写）
+- **🧩 句子拼装** — 补全句子中缺失的单词（语法搭配）
+- **📚 生词复习** — 只刷之前打错的词，答对即移出生词本（弱项巩固）
 
 ## 🚀 安装 / Install
 
 ### 方式一：一条命令安装 / One-line install
 
 ```bash
-curl -fsSL https://github.com/ShallowWaterLab/RomanianLearn/raw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ShallowWaterLab/RomanianLearn/master/install.sh | bash
 ```
 
-### 方式二：手动安装 / Manual install
+安装后运行 `romanianlearn`（如提示 PATH 问题，按脚本提示把 `~/.local/bin` 加入 PATH）。
+
+### 方式二：克隆后直接运行 / Clone and run
 
 ```bash
 git clone https://github.com/ShallowWaterLab/RomanianLearn.git
 cd RomanianLearn
-chmod +x RomanianLearn.js
-./RomanianLearn.js
+node RomanianLearn.js
 ```
 
 ## 📋 依赖 / Dependencies
 
-- **Node.js** 14+（必须 / required）
-- **espeak**（可选，用于听音识词 / optional for audio pronunciation）
+- **Node.js** 18+（必须 / required）
+- **espeak**（可选，用于听音识词发音 / optional for pronunciation）
+
+```bash
+# Ubuntu / Debian
+sudo apt install nodejs espeak
+```
 
 ## 🎮 使用 / Usage
 
@@ -42,15 +48,39 @@ romanianlearn
 node RomanianLearn.js
 ```
 
-启动后从主菜单选择模式，输入 `q` 返回主菜单，输入 `0` 退出。
+启动后从主菜单选择模式；游戏中输入 `q` 返回主菜单，主菜单输入 `0` 退出。
+
+学习进度保存在 `~/.romanianlearn/progress.json`，不会污染安装目录。
 
 ## 📊 词库数据 / Word Data
 
-词库基于 CoRoLa 语料库词频统计，包含 50000+ 常用词和词根。
+仓库自带一份精简词库（`data/`，约 150 KB，各 5000 词），克隆即可用：
 
-词库文件需放在脚本同目录下：
-- `corola_word_freq_gte10.tsv` — 词频（≥10 次）
-- `corola_lemma_freq_gte10.tsv` — 词根频（≥10 次）
+| 文件 | 内容 |
+|---|---|
+| `data/words.tsv` | 常用词形 + 频次 |
+| `data/lemmas.tsv` | 词根 + 频次 |
+
+词库源自 **CoRoLa** 罗马尼亚语语料库词频统计，经脚本清洗（仅保留罗语字母、按小写去重、长度 2–20）。
+
+想用更大的词库？把完整 CoRoLa 文件放到脚本同目录，脚本会优先使用 `data/`，找不到时才回退：
+
+- `corola_word_freq_gte10.tsv`
+- `corola_lemma_freq_gte10.tsv`
+
+重新生成内置词库：
+
+```bash
+python3 tools/build_wordlist.py <CoRoLa目录> data 5000
+```
+
+## 🧪 测试 / Tests
+
+```bash
+node tools/test_run.js
+```
+
+自动驱动 8 个用例（各模式出题判定、计分落盘、生词移除、缺词库报错），全部通过则退出码为 0。
 
 ## 📄 License
 

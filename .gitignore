@@ -1,9 +1,10 @@
 # RomanianLearn .gitignore
 
-# 词库数据（大文件，不入库）
-*.tsv
+# 完整的 CoRoLa 原始词库（大文件，不入库）
+corola_*.tsv
 *.zip
-corola_*
+
+# 注意：data/*.tsv 是精简内置词库，必须入库，不要忽略
 
 # 进度文件（用户本地数据）
 progress.json
