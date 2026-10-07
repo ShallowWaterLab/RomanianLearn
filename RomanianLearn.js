@@ -29,6 +29,10 @@ const LEMMA_CANDIDATES = [
   path.join(SCRIPT_DIR, 'data', 'lemmas.tsv'),
   path.join(SCRIPT_DIR, 'corola_lemma_freq_gte10.tsv'),
 ];
+// 翻译表（构建时预生成，离线可用）
+const TRANSLATION_CANDIDATES = [
+  path.join(SCRIPT_DIR, 'data', 'translations.tsv'),
+];
 
 // 进度写到用户目录，避免安装目录只读
 const PROGRESS_DIR = path.join(os.homedir(), '.romanianlearn');
@@ -85,7 +89,39 @@ function loadAll() {
 
   const words = loadFreqTable(wordFile, 'word');
   const lemmas = loadFreqTable(lemmaFile, 'lemma');
-  return { words, lemmas, wordFile, lemmaFile };
+  const translations = loadTranslations();
+  return { words, lemmas, translations, wordFile, lemmaFile };
+}
+
+// 加载翻译表：word -> { zh, en }
+function loadTranslations() {
+  const file = pickExisting(TRANSLATION_CANDIDATES);
+  const map = new Map();
+  if (!file) return map;
+  try {
+    const content = fs.readFileSync(file, 'utf-8');
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      const parts = line.split('\t');
+      if (parts.length < 2) continue;
+      const word = parts[0].trim();
+      const zh = (parts[1] || '').trim();
+      const en = (parts[2] || '').trim();
+      if (word) map.set(word.toLowerCase(), { zh, en });
+    }
+  } catch (e) { /* 翻译表缺失不影响游戏 */ }
+  return map;
+}
+
+// 取一个词的翻译，返回可直接打印的一行（无翻译则返回空串）
+function translationLine(word, translations) {
+  if (!translations || translations.size === 0) return '';
+  const t = translations.get(String(word).toLowerCase());
+  if (!t || (!t.zh && !t.en)) return '';
+  const bits = [];
+  if (t.zh) bits.push(`中文：${t.zh}`);
+  if (t.en) bits.push(`英文：${t.en}`);
+  return '  📖 ' + bits.join('　｜　');
 }
 
 // ============ 进度保存 ============
@@ -226,7 +262,8 @@ function hasDiacritics(s) {
 }
 
 // ============ 通用回合处理 ============
-function judge(userAnswer, expected, progress, score, shownAnswer) {
+// ctx 可选：带 translations 时，判定后附带中文/英文翻译
+function judge(userAnswer, expected, progress, score, shownAnswer, ctx) {
   const exact = userAnswer.toLowerCase() === expected.toLowerCase();
   // 无符号输入也判对（普通键盘友好）
   const ok = exact || sameFolded(userAnswer, expected);
@@ -246,6 +283,11 @@ function judge(userAnswer, expected, progress, score, shownAnswer) {
     progress.totalWrong++;
     progress.wrongWords[expected.toLowerCase()] =
       (progress.wrongWords[expected.toLowerCase()] || 0) + 1;
+  }
+  // 无论对错都给出翻译，帮助建立词义关联（可在主菜单用 t 开关）
+  if (ctx && ctx.translations && ctx.showTranslation !== false) {
+    const line = translationLine(expected, ctx.translations);
+    if (line) console.log(line);
   }
   console.log(score.line());
   return ok;
@@ -268,7 +310,7 @@ async function modeFrequencyShoot(ctx) {
     asked++;
 
     if (answer.toLowerCase() === 'q') break;
-    judge(answer, item.word, ctx.progress, ctx.score);
+    judge(answer, item.word, ctx.progress, ctx.score, null, ctx);
     if (asked % 10 === 0) saveProgress(ctx.progress);
     console.log();
   }
@@ -321,7 +363,7 @@ async function modeGrammarVariants(ctx) {
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
-    judge(answer, expected, ctx.progress, ctx.score, expected);
+    judge(answer, expected, ctx.progress, ctx.score, expected, ctx);
     if (asked % 10 === 0) saveProgress(ctx.progress);
     console.log();
   }
@@ -368,7 +410,7 @@ async function modeListenSpell(ctx) {
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
-    judge(answer, item.word, ctx.progress, ctx.score);
+    judge(answer, item.word, ctx.progress, ctx.score, null, ctx);
     if (asked % 10 === 0) saveProgress(ctx.progress);
     console.log();
   }
@@ -405,7 +447,7 @@ async function modeSentenceBuild(ctx) {
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
-    judge(answer, t.answer, ctx.progress, ctx.score);
+    judge(answer, t.answer, ctx.progress, ctx.score, null, ctx);
     if (asked % 10 === 0) saveProgress(ctx.progress);
     console.log();
   }
@@ -465,6 +507,11 @@ async function modeReview(ctx) {
       ctx.progress.totalWrong++;
       ctx.progress.wrongWords[word] = count + 1;
     }
+    // 复习时也给出翻译
+    if (ctx.translations && ctx.showTranslation !== false) {
+      const line = translationLine(word, ctx.translations);
+      if (line) console.log(line);
+    }
     console.log(ctx.score.line());
     if (asked % 10 === 0) saveProgress(ctx.progress);
     console.log();
@@ -483,9 +530,9 @@ const MODES = [
 ];
 
 async function mainMenu() {
-  const { words, lemmas } = loadAll();
+  const { words, lemmas, translations } = loadAll();
   const progress = loadProgress();
-  const ctx = { words, lemmas, progress, score: new ScoreTracker() };
+  const ctx = { words, lemmas, translations, progress, score: new ScoreTracker(), showTranslation: true };
   currentProgress = progress;   // 供 SIGINT 处理器保存
 
   const reader = getReader();
@@ -499,6 +546,7 @@ async function mainMenu() {
     for (const m of MODES) {
       console.log(`  [${m.key}] ${m.label} — ${m.desc}`);
     }
+    console.log(`  [t] 翻译显示：${ctx.showTranslation ? '开' : '关'}`);
     console.log('  [0] 退出');
     console.log();
 
@@ -511,6 +559,13 @@ async function mainMenu() {
       console.log('\n  La revedere! 👋\n');
       reader.close();
       return;
+    }
+
+    if (choice.toLowerCase() === 't') {
+      ctx.showTranslation = !ctx.showTranslation;
+      console.log(`  ℹ️  翻译显示已${ctx.showTranslation ? '开启' : '关闭'}`);
+      await sleep(700);
+      continue;
     }
 
     if (mode) {

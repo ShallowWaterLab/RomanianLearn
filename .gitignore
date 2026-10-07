@@ -16,3 +16,6 @@ Thumbs.db
 # 临时文件
 *.tmp
 *.log
+
+# 翻译构建缓存（可重建）
+data/.translate_cache.json

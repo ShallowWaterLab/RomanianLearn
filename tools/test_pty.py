@@ -5,7 +5,7 @@
   stdin 不是 tty 时 readline 不做回显，管道测不出"按一次键出两个字母"这类 bug。
 
 为什么必须等内容而不是死等时间：
-  不同机器启动速度不同（oracle 明显比本地慢），固定 sleep 会导致假失败。
+  不同机器启动速度不同（远端开发机明显比本地慢），固定 sleep 会导致假失败。
 """
 import json
 import os
