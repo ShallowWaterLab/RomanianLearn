@@ -1,0 +1,17 @@
+# RomanianLearn .gitignore
+
+# 词库数据（大文件，不入库）
+*.tsv
+*.zip
+corola_*
+
+# 进度文件（用户本地数据）
+progress.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.log
