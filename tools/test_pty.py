@@ -24,12 +24,27 @@ SCRIPT = sys.argv[1] if len(sys.argv) > 1 else \
 ANSI = re.compile(rb"\x1b\[[0-9;]*[A-Za-z]")
 
 
+def _seed_home():
+    """预置档案，跳过启动时的「新建档案」引导。"""
+    home = tempfile.mkdtemp(prefix="rl_pty_")
+    pdir = os.path.join(home, ".romanianlearn", "profiles")
+    os.makedirs(pdir, exist_ok=True)
+    prof = {"name": "测试", "created": "2026-01-01T00:00:00Z",
+            "totalCorrect": 0, "totalWrong": 0, "words": {}, "asked": 0}
+    with open(os.path.join(pdir, "测试.json"), "w", encoding="utf-8") as f:
+        json.dump(prof, f, ensure_ascii=False)
+    with open(os.path.join(home, ".romanianlearn", "index.json"), "w", encoding="utf-8") as f:
+        json.dump({"current": "测试", "profiles": ["测试"]}, f, ensure_ascii=False)
+    return home
+
+
 class Session:
     def __init__(self):
+        self.home = _seed_home()
         self.master, slave = pty.openpty()
         self.p = subprocess.Popen(
             ["node", SCRIPT], stdin=slave, stdout=slave, stderr=slave,
-            close_fds=True,
+            close_fds=True, env={**os.environ, "HOME": self.home},
         )
         os.close(slave)
         self.buf = b""
@@ -180,7 +195,7 @@ def main():
 
     # ---------- 测试 4：Ctrl+C 优雅退出并保存进度 ----------
     print("\n测试 4: Ctrl+C 优雅退出并保存进度")
-    home = tempfile.mkdtemp(prefix="rl_ctrlc_")
+    home = _seed_home()
     master, slave = pty.openpty()
     p = subprocess.Popen(["node", SCRIPT], stdin=slave, stdout=slave, stderr=slave,
                          env={**os.environ, "HOME": home}, close_fds=True)
@@ -227,7 +242,7 @@ def main():
     except subprocess.TimeoutExpired:
         p.kill()
 
-    pf = os.path.join(home, ".romanianlearn", "progress.json")
+    pf = os.path.join(home, ".romanianlearn", "profiles", "测试.json")
     if p.returncode == 0 and os.path.exists(pf):
         data = json.load(open(pf, encoding="utf-8"))
         print(f"  ✅ 退出码 0，进度已保存：{data}")

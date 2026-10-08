@@ -14,6 +14,7 @@ const path = require('path');
 const SCRIPT = path.join(__dirname, '..', 'RomanianLearn.js');
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 const DIAC = /[ăâîșț]/;
+const { seedProfile } = require('./_testkit');
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -51,6 +52,7 @@ console.log('\n端到端测试：无符号输入应判对并回显正确拼写')
 function run() {
   return new Promise((resolve) => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rl_fold_'));
+    seedProfile(home, '测试');
     const p = spawn('node', [SCRIPT], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, HOME: home },

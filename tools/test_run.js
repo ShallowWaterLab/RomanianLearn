@@ -10,6 +10,7 @@ const path = require('path');
 
 const SCRIPT = path.join(__dirname, '..', 'RomanianLearn.js');
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
+const { seedProfile } = require('./_testkit');
 let caseNo = 0;
 
 /**
@@ -21,10 +22,20 @@ let caseNo = 0;
 function runTest(name, modeKey, steps, opts = {}) {
   return new Promise((resolve) => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), `rl_home_${++caseNo}_`));
+    // 预置档案，跳过启动时的「新建档案」引导
     if (opts.progress) {
-      const dir = path.join(home, '.romanianlearn');
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify(opts.progress));
+      // 旧格式 {wrongWords:{...}} 转成新结构
+      const words = {};
+      for (const [w, n] of Object.entries(opts.progress.wrongWords || {})) {
+        words[w] = { c: 0, w: n, dueAt: 0 };
+      }
+      seedProfile(home, '测试', {
+        totalCorrect: opts.progress.totalCorrect || 0,
+        totalWrong: opts.progress.totalWrong || 0,
+        words,
+      });
+    } else {
+      seedProfile(home, '测试');
     }
 
     const p = spawn('node', [opts.scriptPath || SCRIPT], {
@@ -95,7 +106,7 @@ function runTest(name, modeKey, steps, opts = {}) {
 }
 
 function readProgress(home) {
-  const f = path.join(home, '.romanianlearn', 'progress.json');
+  const f = path.join(home, '.romanianlearn', 'profiles', '测试.json');
   return JSON.parse(fs.readFileSync(f, 'utf-8'));
 }
 
@@ -124,8 +135,8 @@ function readProgress(home) {
     verify: (home) => {
       const p = readProgress(home);
       return {
-        ok: p.totalWrong === 1 && Object.keys(p.wrongWords).length === 1,
-        detail: `落盘错误=${p.totalWrong} 生词=${Object.keys(p.wrongWords).length}`,
+        ok: p.totalWrong === 1 && Object.values(p.words).filter(x => (x.w||0) > 0).length === 1,
+        detail: `落盘错误=${p.totalWrong} 生词=${Object.values(p.words).filter(x => (x.w||0) > 0).length}`,
       };
     },
   }));
@@ -148,21 +159,22 @@ function readProgress(home) {
   ]));
 
   results.push(await runTest('F 生词复习·空本提示', '5', [
-    { expect: /生词本是空的/, reply: null },
+    { expect: /没有生词需要复习/, reply: null },
     { expect: /请选择/, reply: () => '0' },
   ], { timeoutMs: 15000 }));
 
-  results.push(await runTest('G 生词复习·答对移出并落盘', '5', [
+  results.push(await runTest('G 生词复习·答对后连对计数增加', '5', [
     { expect: /📚 carte[^\n]*\n\s*✏️[^>]*>/, reply: () => 'carte' },
-    { expect: /已移出生词本/, reply: () => 'q' },
+    { expect: /正确/, reply: () => 'q' },
     { expect: /请选择/, reply: () => '0' },
   ], {
     progress: { wrongWords: { carte: 3 }, totalCorrect: 0, totalWrong: 3 },
     verify: (home) => {
       const p = readProgress(home);
+      const st = p.words['carte'] || {};
       return {
-        ok: !('carte' in p.wrongWords) && p.totalCorrect === 1,
-        detail: `生词已移除=${!('carte' in p.wrongWords)} 正确=${p.totalCorrect}`,
+        ok: (st.c || 0) === 1 && p.totalCorrect === 1,
+        detail: `连对=${st.c || 0} 正确=${p.totalCorrect}`,
       };
     },
   }));

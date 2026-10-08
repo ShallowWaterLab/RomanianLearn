@@ -34,9 +34,225 @@ const TRANSLATION_CANDIDATES = [
   path.join(SCRIPT_DIR, 'data', 'translations.tsv'),
 ];
 
-// 进度写到用户目录，避免安装目录只读
-const PROGRESS_DIR = path.join(os.homedir(), '.romanianlearn');
-const PROGRESS_FILE = path.join(PROGRESS_DIR, 'progress.json');
+// 数据目录：档案与进度都放用户目录，避免安装目录只读
+const DATA_DIR = path.join(os.homedir(), '.romanianlearn');
+const PROFILE_DIR = path.join(DATA_DIR, 'profiles');
+const INDEX_FILE = path.join(DATA_DIR, 'index.json');
+const LEGACY_PROGRESS = path.join(DATA_DIR, 'progress.json');
+
+const DEFAULT_PROFILE = '默认';
+
+// ============ 档案 ============
+function safeProfileName(name) {
+  return String(name).trim().replace(/[\/\\:*?"<>|]/g, '_').slice(0, 40);
+}
+
+function profilePath(name) {
+  return path.join(PROFILE_DIR, safeProfileName(name) + '.json');
+}
+
+function emptyProfile(name) {
+  return {
+    name: name,
+    created: new Date().toISOString(),
+    totalCorrect: 0,
+    totalWrong: 0,
+    words: {},          // word -> { c: 连续答对次数, w: 累计答错, dueAt: 该在第几题再出现 }
+    asked: 0,           // 该档案累计出题数（用于计算 dueAt）
+  };
+}
+
+function readIndex() {
+  try {
+    if (fs.existsSync(INDEX_FILE)) {
+      const d = JSON.parse(fs.readFileSync(INDEX_FILE, 'utf-8'));
+      return {
+        current: d.current || null,
+        profiles: Array.isArray(d.profiles) ? d.profiles : [],
+      };
+    }
+  } catch (e) { /* 损坏则重建 */ }
+  return { current: null, profiles: [] };
+}
+
+function writeIndex(idx) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(INDEX_FILE, JSON.stringify(idx, null, 2), 'utf-8');
+  } catch (e) { /* 忽略 */ }
+}
+
+// 列出磁盘上真实存在的档案
+function listProfiles() {
+  const idx = readIndex();
+  let files = [];
+  try {
+    if (fs.existsSync(PROFILE_DIR)) {
+      files = fs.readdirSync(PROFILE_DIR)
+        .filter(f => f.endsWith('.json'))
+        .map(f => f.slice(0, -5));
+    }
+  } catch (e) { /* 忽略 */ }
+
+  // 以磁盘为准，并保持索引中的顺序
+  const ordered = [];
+  for (const n of idx.profiles) if (files.includes(n)) ordered.push(n);
+  for (const n of files) if (!ordered.includes(n)) ordered.push(n);
+  return ordered;
+}
+
+function loadProfile(name) {
+  try {
+    const p = profilePath(name);
+    if (fs.existsSync(p)) {
+      const d = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      return {
+        name: name,
+        created: d.created || new Date().toISOString(),
+        totalCorrect: d.totalCorrect || 0,
+        totalWrong: d.totalWrong || 0,
+        words: d.words && typeof d.words === 'object' ? d.words : {},
+        asked: d.asked || 0,
+      };
+    }
+  } catch (e) { /* 损坏则新建 */ }
+  return emptyProfile(name);
+}
+
+function saveProfile(profile) {
+  try {
+    fs.mkdirSync(PROFILE_DIR, { recursive: true });
+    fs.writeFileSync(profilePath(profile.name),
+                     JSON.stringify(profile, null, 2), 'utf-8');
+    const idx = readIndex();
+    if (!idx.profiles.includes(profile.name)) idx.profiles.push(profile.name);
+    idx.current = profile.name;
+    writeIndex(idx);
+  } catch (e) { /* 存档失败不应中断游戏 */ }
+}
+
+function createProfile(name) {
+  const n = safeProfileName(name) || DEFAULT_PROFILE;
+  const p = emptyProfile(n);
+  saveProfile(p);
+  return p;
+}
+
+function deleteProfile(name) {
+  try {
+    const p = profilePath(name);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+    const idx = readIndex();
+    idx.profiles = idx.profiles.filter(x => x !== name);
+    if (idx.current === name) idx.current = idx.profiles[0] || null;
+    writeIndex(idx);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// 首次运行：把旧的单文件进度迁移成档案，避免老用户丢进度
+function migrateLegacy() {
+  try {
+    if (!fs.existsSync(LEGACY_PROGRESS)) return;
+    if (listProfiles().length > 0) return;
+    const d = JSON.parse(fs.readFileSync(LEGACY_PROGRESS, 'utf-8'));
+    const p = emptyProfile(DEFAULT_PROFILE);
+    p.totalCorrect = d.totalCorrect || 0;
+    p.totalWrong = d.totalWrong || 0;
+    // 旧的 wrongWords 是 {词: 次数}，转成新结构
+    for (const [w, n] of Object.entries(d.wrongWords || {})) {
+      p.words[w] = { c: 0, w: n, dueAt: 0 };
+    }
+    saveProfile(p);
+    fs.renameSync(LEGACY_PROGRESS, LEGACY_PROGRESS + '.migrated');
+  } catch (e) { /* 迁移失败不阻塞启动 */ }
+}
+
+// ============ 间隔重复 ============
+// 答对的词不会消失，而是"间隔"逐次拉长后再出现（防遗忘）；
+// 答错的词立刻回到近期队列（弱项优先）。
+const BASE_INTERVAL = 8;      // 首次答对后，隔多少题再出现
+const MAX_INTERVAL = 500;
+
+function intervalFor(streak) {
+  // streak=1 → 8, 2 → 16, 3 → 32, 4 → 64 ... 上限 500
+  const v = BASE_INTERVAL * Math.pow(2, Math.max(0, streak - 1));
+  return Math.min(MAX_INTERVAL, Math.round(v));
+}
+
+// 记录一次作答，更新该词的复习状态
+function recordAnswer(progress, word, correct) {
+  const key = String(word).toLowerCase();
+  progress.asked = (progress.asked || 0) + 1;
+  let st = progress.words[key];
+  if (!st) st = { c: 0, w: 0, dueAt: 0 };
+
+  if (correct) {
+    st.c = (st.c || 0) + 1;
+    st.dueAt = progress.asked + intervalFor(st.c);
+  } else {
+    st.c = 0;
+    st.w = (st.w || 0) + 1;
+    st.dueAt = progress.asked + 1;   // 下一题就可能再出现
+  }
+  progress.words[key] = st;
+}
+
+// 出题权重：错词最高，到期的词较高，已掌握的词随连对次数递减
+function wordWeight(progress, word) {
+  const st = progress.words[String(word).toLowerCase()];
+  if (!st) return 1.0;                       // 没练过：正常引入
+  const now = progress.asked || 0;
+  const due = st.dueAt || 0;
+
+  if (due <= now) {
+    // 到期该复习了
+    if (st.w > 0) return 12 + Math.min(st.w, 5) * 3;   // 错词：12~27
+    return 4;                                          // 普通复习：4
+  }
+  // 还没到期：按连对次数压制，但仍保留极小权重（迟早还会出现）
+  const streak = st.c || 0;
+  return Math.max(0.02, 1 / Math.pow(2, streak));
+}
+
+// 按「词频 × 复习权重」抽取
+function pickWord(ctx, items, keyName) {
+  const now = ctx.progress.asked || 0;
+  const pool = [];
+
+  // 候选池：前 2000 高频词 + 所有已到期/答错过的词
+  const seen = new Set();
+  for (let i = 0; i < items.length && i < 2000; i++) {
+    pool.push(items[i]);
+    seen.add(String(items[i][keyName]).toLowerCase());
+  }
+  for (const [w, st] of Object.entries(ctx.progress.words)) {
+    if (seen.has(w)) continue;
+    if ((st.dueAt || 0) <= now) {
+      const idx = items.findIndex(it => String(it[keyName]).toLowerCase() === w);
+      if (idx >= 0) pool.push(items[idx]);
+    }
+  }
+  if (pool.length === 0) return items[0];
+
+  let total = 0;
+  const weights = new Array(pool.length);
+  for (let i = 0; i < pool.length; i++) {
+    const it = pool[i];
+    const f = Math.log((it.freq || 1) + 1);
+    const w = f * wordWeight(ctx.progress, it[keyName]);
+    weights[i] = w;
+    total += w;
+  }
+  let r = Math.random() * total;
+  for (let i = 0; i < pool.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
 
 const MIN_WORD_LEN = 2;
 const MAX_WORD_LEN = 24;
@@ -124,28 +340,13 @@ function translationLine(word, translations) {
   return '  📖 ' + bits.join('　｜　');
 }
 
-// ============ 进度保存 ============
-function loadProgress() {
-  try {
-    if (fs.existsSync(PROGRESS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf-8'));
-      return {
-        wrongWords: data.wrongWords || {},
-        totalCorrect: data.totalCorrect || 0,
-        totalWrong: data.totalWrong || 0,
-      };
-    }
-  } catch (e) { /* 损坏则重置 */ }
-  return { wrongWords: {}, totalCorrect: 0, totalWrong: 0 };
-}
-
-function saveProgress(progress) {
-  try {
-    fs.mkdirSync(PROGRESS_DIR, { recursive: true });
-    fs.writeFileSync(PROGRESS_FILE, JSON.stringify(progress, null, 2), 'utf-8');
-  } catch (e) {
-    // 进度保存失败不应中断游戏
-  }
+// words 与 lemmas 存在重叠（本身既是词形又是词根），
+// 直接相加会虚高；这里按小写去重后给出真实词量
+function countUniqueWords(words, lemmas) {
+  const seen = new Set();
+  for (const it of words) seen.add(it.word);
+  for (const it of lemmas) seen.add(it.lemma);
+  return seen.size;
 }
 
 // ============ 计分系统 ============
@@ -281,9 +482,17 @@ function judge(userAnswer, expected, progress, score, shownAnswer, ctx) {
     console.log(`  ❌ 错误！正确答案：${shownAnswer || expected}`);
     score.miss();
     progress.totalWrong++;
-    progress.wrongWords[expected.toLowerCase()] =
-      (progress.wrongWords[expected.toLowerCase()] || 0) + 1;
   }
+
+  // 无论对错都更新该词的复习状态：
+  // 答对 → 间隔拉长后再出现（防遗忘）；答错 → 立刻回到近期队列
+  recordAnswer(progress, expected, ok);
+  if (ok && !exact) {
+    // 无符号输入算对，但还没真正掌握拼写，间隔按较短的来
+    const st = progress.words[String(expected).toLowerCase()];
+    if (st) st.dueAt = (progress.asked || 0) + BASE_INTERVAL;
+  }
+
   // 无论对错都给出翻译，帮助建立词义关联（可在主菜单用 t 开关）
   if (ctx && ctx.translations && ctx.showTranslation !== false) {
     const line = translationLine(expected, ctx.translations);
@@ -304,18 +513,18 @@ async function modeFrequencyShoot(ctx) {
   let asked = 0;
 
   while (true) {
-    const item = weightedPick(ctx.words);
+    const item = pickWord(ctx, ctx.words, 'word');
     process.stdout.write(`  🎯 ${item.word}\n  ✏️  > `);
     const answer = await reader.ask('');
     asked++;
 
     if (answer.toLowerCase() === 'q') break;
     judge(answer, item.word, ctx.progress, ctx.score, null, ctx);
-    if (asked % 10 === 0) saveProgress(ctx.progress);
+    if (asked % 10 === 0) saveProfile(ctx.progress);
     console.log();
   }
 
-  saveProgress(ctx.progress);
+  saveProfile(ctx.progress);
 }
 
 // 按频次加权抽取（高频词出现概率更高）
@@ -352,7 +561,7 @@ async function modeGrammarVariants(ctx) {
   let asked = 0;
 
   while (true) {
-    const lemma = randomOf(ctx.lemmas).lemma;
+    const lemma = pickWord(ctx, ctx.lemmas, 'lemma').lemma;
     const v = randomOf(variants);
     const expected = lemma + v.suffix;
 
@@ -364,11 +573,11 @@ async function modeGrammarVariants(ctx) {
     asked++;
     if (answer.toLowerCase() === 'q') break;
     judge(answer, expected, ctx.progress, ctx.score, expected, ctx);
-    if (asked % 10 === 0) saveProgress(ctx.progress);
+    if (asked % 10 === 0) saveProfile(ctx.progress);
     console.log();
   }
 
-  saveProgress(ctx.progress);
+  saveProfile(ctx.progress);
 }
 
 // ============ 模块 3: 听音识词 ============
@@ -394,7 +603,7 @@ async function modeListenSpell(ctx) {
   let asked = 0;
 
   while (true) {
-    const item = weightedPick(ctx.words);
+    const item = pickWord(ctx, ctx.words, 'word');
 
     if (hasEspeak) {
       try {
@@ -411,11 +620,11 @@ async function modeListenSpell(ctx) {
     asked++;
     if (answer.toLowerCase() === 'q') break;
     judge(answer, item.word, ctx.progress, ctx.score, null, ctx);
-    if (asked % 10 === 0) saveProgress(ctx.progress);
+    if (asked % 10 === 0) saveProfile(ctx.progress);
     console.log();
   }
 
-  saveProgress(ctx.progress);
+  saveProfile(ctx.progress);
 }
 
 // ============ 模块 4: 句子拼装 ============
@@ -448,21 +657,26 @@ async function modeSentenceBuild(ctx) {
     asked++;
     if (answer.toLowerCase() === 'q') break;
     judge(answer, t.answer, ctx.progress, ctx.score, null, ctx);
-    if (asked % 10 === 0) saveProgress(ctx.progress);
+    if (asked % 10 === 0) saveProfile(ctx.progress);
     console.log();
   }
 
-  saveProgress(ctx.progress);
+  saveProfile(ctx.progress);
 }
 
 // ============ 模块 5: 生词复习 ============
 async function modeReview(ctx) {
   clearScreen();
   printHeader('📚 生词复习 — 弱项巩固');
-  console.log('  只刷之前打错的词，答对即移出生词本。输入 q 返回。\n');
+  console.log('  只刷答错过的词，连对后间隔拉长。输入 q 返回。\n');
 
-  if (Object.keys(ctx.progress.wrongWords).length === 0) {
-    console.log('  🎉 生词本是空的，先去别的模式练练吧！');
+  // 生词 = 答错过、且尚未连对两次的词
+  const weakWords = () => Object.entries(ctx.progress.words)
+    .filter(([, st]) => (st.w || 0) > 0 && (st.c || 0) < 2)
+    .sort((a, b) => (b[1].w || 0) - (a[1].w || 0));
+
+  if (weakWords().length === 0) {
+    console.log('  🎉 没有生词需要复习，先去别的模式练练吧！');
     await sleep(1800);
     return;
   }
@@ -471,53 +685,244 @@ async function modeReview(ctx) {
   let asked = 0;
 
   while (true) {
-    const entries = Object.entries(ctx.progress.wrongWords);
-    if (entries.length === 0) {
-      console.log('  🎉 生词本清空了！');
+    const list = weakWords();
+    if (list.length === 0) {
+      console.log('  🎉 生词都巩固好了！');
       await sleep(1200);
       break;
     }
 
-    // 错得越多的越优先
-    entries.sort((a, b) => b[1] - a[1]);
-    const top = entries.slice(0, 10);
-    const [word, count] = randomOf(top);
+    // 错得越多的越优先（前 10 个里随机，避免每次顺序完全一样）
+    const [word, st] = randomOf(list.slice(0, 10));
+    const missed = st.w || 0;
+    const streak = st.c || 0;
 
-    console.log(`  📚 ${word}   （曾错 ${count} 次）`);
+    console.log(`  📚 ${word}   （曾错 ${missed} 次${streak ? `，已连对 ${streak} 次` : ''}）`);
     process.stdout.write('  ✏️  拼写 > ');
     const answer = await reader.ask('');
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
 
-    if (answer.toLowerCase() === word.toLowerCase()) {
-      console.log('  ✅ 正确！已移出生词本');
-      ctx.score.hit();
-      ctx.progress.totalCorrect++;
-      delete ctx.progress.wrongWords[word];
-    } else if (sameFolded(answer, word)) {
-      // 无符号输入也判对，但保留在生词本里多练一次
+    const exact = answer.toLowerCase() === word.toLowerCase();
+    const folded = !exact && sameFolded(answer, word);
+
+    if (exact) {
+      console.log('  ✅ 正确！');
+    } else if (folded) {
       console.log(`  ✅ 正确！（无符号输入）正确拼写：${word}`);
-      console.log('     ℹ️  该词仍留在生词本，再练一次加深记忆');
-      ctx.score.hit();
-      ctx.progress.totalCorrect++;
     } else {
       console.log(`  ❌ 错误！正确答案：${word}`);
-      ctx.score.miss();
-      ctx.progress.totalWrong++;
-      ctx.progress.wrongWords[word] = count + 1;
     }
+    if (exact) ctx.score.hit();
+    else if (folded) ctx.score.hit();
+    else ctx.score.miss();
+
+    if (exact) ctx.progress.totalCorrect++;
+    else if (folded) ctx.progress.totalCorrect++;
+    else ctx.progress.totalWrong++;
+
+    recordAnswer(ctx.progress, word, exact || folded);
+    if (folded) {
+      // 无符号输入还没真正掌握拼写，缩短间隔
+      const s2 = ctx.progress.words[word.toLowerCase()];
+      if (s2) s2.dueAt = (ctx.progress.asked || 0) + BASE_INTERVAL;
+    }
+    const after = ctx.progress.words[word.toLowerCase()] || {};
+    if (exact && (after.c || 0) >= 2) {
+      console.log('     ℹ️  已连对 2 次，间隔拉长，稍后再见');
+    }
+
     // 复习时也给出翻译
     if (ctx.translations && ctx.showTranslation !== false) {
       const line = translationLine(word, ctx.translations);
       if (line) console.log(line);
     }
     console.log(ctx.score.line());
-    if (asked % 10 === 0) saveProgress(ctx.progress);
+    if (asked % 10 === 0) saveProfile(ctx.progress);
     console.log();
   }
 
-  saveProgress(ctx.progress);
+  saveProfile(ctx.progress);
+}
+
+// ============ 学习概览 ============
+function showStats(ctx) {
+  clearScreen();
+  printHeader('📊 学习概览');
+  const p = ctx.progress;
+  const st = Object.values(p.words);
+  const learned = st.filter(s => (s.c || 0) >= 2).length;      // 连对 ≥2 视为已掌握
+  const learning = st.filter(s => (s.c || 0) === 1).length;
+  const weak = st.filter(s => (s.w || 0) > 0 && (s.c || 0) < 2).length;
+  const total = p.totalCorrect + p.totalWrong;
+
+  console.log(`  档案：${p.name}`);
+  console.log(`  累计作答：${total} 题（正确 ${p.totalCorrect} · 错误 ${p.totalWrong}）`);
+  if (total > 0) {
+    console.log(`  正确率：${(p.totalCorrect / total * 100).toFixed(1)}%`);
+  }
+  console.log();
+  console.log(`  ✅ 已掌握（连对 2 次以上）：${learned}`);
+  console.log(`  📖 学习中（连对 1 次）：${learning}`);
+  console.log(`  ⚠️  待巩固（答错过）：${weak}`);
+  console.log(`  🆕 尚未练习：${countUniqueWords(ctx.words, ctx.lemmas) - st.length}`);
+  console.log();
+  console.log('  按回车返回主菜单');
+}
+
+// ============ 档案界面 ============
+function profileSummary(name) {
+  const p = loadProfile(name);
+  const total = p.totalCorrect + p.totalWrong;
+  const learned = Object.values(p.words).filter(s => (s.c || 0) >= 2).length;
+  return { total, learned };
+}
+
+async function chooseProfile(reader) {
+  while (true) {
+    const names = listProfiles();
+
+    if (names.length === 0) {
+      clearScreen();
+      printHeader('👤 新建学习档案');
+      console.log('  第一次使用，先给自己起个名字（不同档案进度独立保存）。');
+      console.log('  直接回车使用「' + DEFAULT_PROFILE + '」。\n');
+      const input = await reader.ask('  档案名 > ');
+      const name = safeProfileName(input) || DEFAULT_PROFILE;
+      const p = createProfile(name);
+      console.log(`  ✅ 已创建档案「${p.name}」`);
+      await sleep(900);
+      return p;
+    }
+
+    if (names.length === 1) {
+      const p = loadProfile(names[0]);
+      saveProfile(p);   // 记入 index
+      return p;
+    }
+
+    // 多个档案：让用户选
+    clearScreen();
+    printHeader('👤 选择学习档案');
+    names.forEach((n, i) => {
+      const s = profileSummary(n);
+      console.log(`  [${i + 1}] ${n}   累计 ${s.total} 题 · 已掌握 ${s.learned} 词`);
+    });
+    console.log(`  [n] 新建档案`);
+    console.log();
+
+    const choice = await reader.ask('  请选择 > ');
+    const c = choice.toLowerCase();
+
+    if (c === 'n') {
+      const input = await reader.ask('  新档案名 > ');
+      const name = safeProfileName(input) || DEFAULT_PROFILE;
+      if (names.includes(name)) {
+        console.log(`  ⚠️  档案「${name}」已存在`);
+        await sleep(1200);
+        continue;
+      }
+      const p = createProfile(name);
+      console.log(`  ✅ 已创建档案「${p.name}」`);
+      await sleep(900);
+      return p;
+    }
+
+    const idx = parseInt(choice, 10) - 1;
+    if (idx >= 0 && idx < names.length) {
+      const p = loadProfile(names[idx]);
+      saveProfile(p);
+      return p;
+    }
+    console.log('  ⚠️  无效选择');
+    await sleep(800);
+  }
+}
+
+async function manageProfiles(ctx, reader) {
+  clearScreen();
+  printHeader('👤 档案管理');
+  const names = listProfiles();
+  names.forEach((n, i) => {
+    const s = profileSummary(n);
+    const mark = n === ctx.progress.name ? ' ←当前' : '';
+    console.log(`  [${i + 1}] ${n}   累计 ${s.total} 题 · 已掌握 ${s.learned} 词${mark}`);
+  });
+  console.log('  [n] 新建档案');
+  console.log('  [d] 删除档案');
+  console.log('  [回车] 返回');
+  console.log();
+
+  const choice = await reader.ask('  请选择 > ');
+  const c = choice.toLowerCase();
+
+  if (c === 'n') {
+    const input = await reader.ask('  新档案名 > ');
+    const name = safeProfileName(input) || DEFAULT_PROFILE;
+    if (names.includes(name)) {
+      console.log(`  ⚠️  档案「${name}」已存在`);
+      await sleep(1200);
+      return;
+    }
+    saveProfile(ctx.progress);      // 先保存当前
+    const p = createProfile(name);
+    ctx.progress = p;
+    currentProgress = p;
+    console.log(`  ✅ 已创建并切换到「${p.name}」`);
+    await sleep(1000);
+    return;
+  }
+
+  if (c === 'd') {
+    if (names.length <= 1) {
+      console.log('  ⚠️  至少要保留一个档案');
+      await sleep(1200);
+      return;
+    }
+    const input = await reader.ask('  要删除哪个（输入编号）> ');
+    const idx = parseInt(input, 10) - 1;
+    if (idx < 0 || idx >= names.length) {
+      console.log('  ⚠️  无效编号');
+      await sleep(1000);
+      return;
+    }
+    const target = names[idx];
+    const confirm = await reader.ask(`  确认删除档案「${target}」及其全部进度？(yes/N) > `);
+    if (confirm.toLowerCase() !== 'yes' && confirm.toLowerCase() !== 'y') {
+      console.log('  已取消');
+      await sleep(900);
+      return;
+    }
+    const wasCurrent = target === ctx.progress.name;
+    saveProfile(ctx.progress);      // 防止删除后 index 被覆盖
+    if (deleteProfile(target)) {
+      console.log(`  ✅ 已删除「${target}」`);
+      if (wasCurrent) {
+        const rest = listProfiles();
+        const p = rest.length ? loadProfile(rest[0]) : createProfile(DEFAULT_PROFILE);
+        saveProfile(p);
+        ctx.progress = p;
+        currentProgress = p;
+        console.log(`  已切换到「${p.name}」`);
+      }
+    } else {
+      console.log('  ⚠️  删除失败');
+    }
+    await sleep(1200);
+    return;
+  }
+
+  const idx = parseInt(choice, 10) - 1;
+  if (idx >= 0 && idx < names.length) {
+    saveProfile(ctx.progress);      // 先保存当前档案
+    const p = loadProfile(names[idx]);
+    saveProfile(p);
+    ctx.progress = p;
+    currentProgress = p;
+    console.log(`  ✅ 已切换到「${p.name}」`);
+    await sleep(900);
+  }
 }
 
 // ============ 主菜单 ============
@@ -531,40 +936,67 @@ const MODES = [
 
 async function mainMenu() {
   const { words, lemmas, translations } = loadAll();
-  const progress = loadProgress();
-  const ctx = { words, lemmas, translations, progress, score: new ScoreTracker(), showTranslation: true };
-  currentProgress = progress;   // 供 SIGINT 处理器保存
-
   const reader = getReader();
+
+  // 首次运行：迁移旧版单文件进度
+  migrateLegacy();
+  // 选档案（多个时让用户选，只有一个直接进）
+  const progress = await chooseProfile(reader);
+
+  const ctx = {
+    words, lemmas, translations, progress,
+    score: new ScoreTracker(), showTranslation: true,
+  };
+  currentProgress = progress;   // 供 SIGINT 处理器保存
 
   while (true) {
     clearScreen();
     printHeader('🇷🇴 RomanianLearn — 罗马尼亚语学习工具');
-    console.log(`  词库：${words.length} 常用词 · ${lemmas.length} 词根`);
-    console.log(`  累计：正确 ${progress.totalCorrect} · 错误 ${progress.totalWrong} · 生词 ${Object.keys(progress.wrongWords).length}`);
+    // words 与 lemmas 有重叠，直接相加会虚高；这里报告去重后的总数
+    const uniqTotal = countUniqueWords(words, lemmas);
+    console.log(`  档案：${progress.name}`);
+    console.log(`  词库：${uniqTotal} 个词（${words.length} 词形 · ${lemmas.length} 词根）`);
+    const st = Object.values(progress.words);
+    const learned = st.filter(s => (s.c || 0) >= 2).length;
+    const weak = st.filter(s => (s.w || 0) > 0 && (s.c || 0) < 2).length;
+    console.log(`  累计：正确 ${progress.totalCorrect} · 错误 ${progress.totalWrong} · 已掌握 ${learned} · 待巩固 ${weak}`);
     console.log();
     for (const m of MODES) {
       console.log(`  [${m.key}] ${m.label} — ${m.desc}`);
     }
+    console.log(`  [s] 📊 学习概览`);
+    console.log(`  [p] 👤 档案管理`);
     console.log(`  [t] 翻译显示：${ctx.showTranslation ? '开' : '关'}`);
     console.log('  [0] 退出');
     console.log();
 
     const choice = await reader.ask('  请选择 > ');
     const mode = MODES.find(m => m.key === choice);
+    const c = choice.toLowerCase();
 
-    if (choice === '0' || choice.toLowerCase() === 'q') {
-      saveProgress(progress);
+    if (choice === '0' || c === 'q') {
+      saveProfile(progress);
       clearScreen();
       console.log('\n  La revedere! 👋\n');
       reader.close();
       return;
     }
 
-    if (choice.toLowerCase() === 't') {
+    if (c === 't') {
       ctx.showTranslation = !ctx.showTranslation;
       console.log(`  ℹ️  翻译显示已${ctx.showTranslation ? '开启' : '关闭'}`);
       await sleep(700);
+      continue;
+    }
+
+    if (c === 's') {
+      showStats(ctx);
+      await reader.ask('');
+      continue;
+    }
+
+    if (c === 'p') {
+      await manageProfiles(ctx, reader);
       continue;
     }
 
@@ -584,7 +1016,7 @@ if (require.main === module) {
   _gracefulExit = () => {
     if (quitting) process.exit(1);
     quitting = true;
-    try { saveProgress(currentProgress || loadProgress()); } catch (e) { /* 忽略 */ }
+    try { if (currentProgress) saveProfile(currentProgress); } catch (e) { /* 忽略 */ }
     try { if (_reader) _reader.close(); } catch (e) { /* 忽略 */ }
     process.stdout.write('\n\n  La revedere! 👋\n\n');
     process.exit(0);
@@ -597,4 +1029,10 @@ if (require.main === module) {
   });
 }
 
-module.exports = { loadFreqTable, pickExisting, ScoreTracker, weightedPick, foldDiacritics, sameFolded, hasDiacritics };
+module.exports = {
+  loadFreqTable, pickExisting, ScoreTracker, weightedPick,
+  foldDiacritics, sameFolded, hasDiacritics,
+  intervalFor, wordWeight, recordAnswer, emptyProfile,
+  safeProfileName, listProfiles, loadProfile, saveProfile,
+  createProfile, deleteProfile,
+};

@@ -14,6 +14,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'RomanianLearn.js');
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
+const { seedProfile } = require('./_testkit');
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -98,6 +99,7 @@ console.log('\n端到端: 答对后显示翻译');
 function runOnce(modeKey, extra = []) {
   return new Promise((resolve) => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rl_tr_'));
+    seedProfile(home, '测试');
     const p = spawn('node', [SCRIPT], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, HOME: home },
