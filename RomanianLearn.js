@@ -192,12 +192,24 @@ function recordAnswer(progress, word, correct) {
   if (correct) {
     st.c = (st.c || 0) + 1;
     st.dueAt = progress.asked + intervalFor(st.c);
+    // 连对 2 次即视为已掌握：清掉历史错误，否则这个词会永远挂在「待巩固」里
+    if (st.c >= 2) st.w = 0;
   } else {
     st.c = 0;
     st.w = (st.w || 0) + 1;
     st.dueAt = progress.asked + 1;   // 下一题就可能再出现
   }
   progress.words[key] = st;
+}
+
+// 是否属于「待巩固」（答错过且尚未掌握）
+function isWeak(st) {
+  return (st.w || 0) > 0 && (st.c || 0) < 2;
+}
+
+// 是否已掌握
+function isLearned(st) {
+  return (st.c || 0) >= 2;
 }
 
 // 出题权重：错词最高，到期的词较高，已掌握的词随连对次数递减
@@ -209,34 +221,50 @@ function wordWeight(progress, word) {
 
   if (due <= now) {
     // 到期该复习了
-    if (st.w > 0) return 12 + Math.min(st.w, 5) * 3;   // 错词：12~27
-    return 4;                                          // 普通复习：4
+    if (st.w > 0) return 60 + Math.min(st.w, 5) * 20;  // 错词：60~160
+    return 12;                                         // 普通复习：12
   }
   // 还没到期：按连对次数压制，但仍保留极小权重（迟早还会出现）
   const streak = st.c || 0;
   return Math.max(0.02, 1 / Math.pow(2, streak));
 }
 
-// 按「词频 × 复习权重」抽取
+// 按「词频 × 复习权重」抽取。
+// 采用两段式：先决定这一题是「复习到期的词」还是「正常出题」，
+// 否则少数到期词会被池子里上千个新词的权重稀释掉，导致错词迟迟不回来。
+const REVIEW_SHARE = 0.7;     // 有到期词时，最多 70% 的题目用于复习
 function pickWord(ctx, items, keyName) {
   const now = ctx.progress.asked || 0;
-  const pool = [];
 
-  // 候选池：前 2000 高频词 + 所有已到期/答错过的词
-  const seen = new Set();
-  for (let i = 0; i < items.length && i < 2000; i++) {
-    pool.push(items[i]);
-    seen.add(String(items[i][keyName]).toLowerCase());
-  }
+  // 找出所有「到期」的词（含答错后立刻到期的）
+  const due = [];
   for (const [w, st] of Object.entries(ctx.progress.words)) {
-    if (seen.has(w)) continue;
     if ((st.dueAt || 0) <= now) {
-      const idx = items.findIndex(it => String(it[keyName]).toLowerCase() === w);
-      if (idx >= 0) pool.push(items[idx]);
+      const it = items.find(x => String(x[keyName]).toLowerCase() === w);
+      if (it) due.push(it);
     }
   }
-  if (pool.length === 0) return items[0];
 
+  // 到期词足够多时，按比例优先复习；否则全部正常出题
+  const reviewChance = due.length === 0 ? 0
+    : Math.min(REVIEW_SHARE, due.length / 8);
+  if (due.length > 0 && Math.random() < reviewChance) {
+    return weightedOf(ctx, due, keyName);
+  }
+
+  // 正常出题池：前 2000 高频词 + 所有已练过的词
+  const pool = items.slice(0, 2000);
+  const seen = new Set(pool.map(it => String(it[keyName]).toLowerCase()));
+  for (const w of Object.keys(ctx.progress.words)) {
+    if (seen.has(w)) continue;
+    const it = items.find(x => String(x[keyName]).toLowerCase() === w);
+    if (it) pool.push(it);
+  }
+  return weightedOf(ctx, pool.length ? pool : items, keyName);
+}
+
+// 在给定集合里按「词频 × 复习权重」加权随机
+function weightedOf(ctx, pool, keyName) {
   let total = 0;
   const weights = new Array(pool.length);
   for (let i = 0; i < pool.length; i++) {
@@ -246,6 +274,7 @@ function pickWord(ctx, items, keyName) {
     weights[i] = w;
     total += w;
   }
+  if (total <= 0) return pool[0];
   let r = Math.random() * total;
   for (let i = 0; i < pool.length; i++) {
     r -= weights[i];
@@ -672,7 +701,7 @@ async function modeReview(ctx) {
 
   // 生词 = 答错过、且尚未连对两次的词
   const weakWords = () => Object.entries(ctx.progress.words)
-    .filter(([, st]) => (st.w || 0) > 0 && (st.c || 0) < 2)
+    .filter(([, st]) => isWeak(st))
     .sort((a, b) => (b[1].w || 0) - (a[1].w || 0));
 
   if (weakWords().length === 0) {
@@ -752,9 +781,9 @@ function showStats(ctx) {
   printHeader('📊 学习概览');
   const p = ctx.progress;
   const st = Object.values(p.words);
-  const learned = st.filter(s => (s.c || 0) >= 2).length;      // 连对 ≥2 视为已掌握
+  const learned = st.filter(isLearned).length;
   const learning = st.filter(s => (s.c || 0) === 1).length;
-  const weak = st.filter(s => (s.w || 0) > 0 && (s.c || 0) < 2).length;
+  const weak = st.filter(isWeak).length;
   const total = p.totalCorrect + p.totalWrong;
 
   console.log(`  档案：${p.name}`);
@@ -775,7 +804,7 @@ function showStats(ctx) {
 function profileSummary(name) {
   const p = loadProfile(name);
   const total = p.totalCorrect + p.totalWrong;
-  const learned = Object.values(p.words).filter(s => (s.c || 0) >= 2).length;
+  const learned = Object.values(p.words).filter(isLearned).length;
   return { total, learned };
 }
 
@@ -957,8 +986,8 @@ async function mainMenu() {
     console.log(`  档案：${progress.name}`);
     console.log(`  词库：${uniqTotal} 个词（${words.length} 词形 · ${lemmas.length} 词根）`);
     const st = Object.values(progress.words);
-    const learned = st.filter(s => (s.c || 0) >= 2).length;
-    const weak = st.filter(s => (s.w || 0) > 0 && (s.c || 0) < 2).length;
+    const learned = st.filter(isLearned).length;
+    const weak = st.filter(isWeak).length;
     console.log(`  累计：正确 ${progress.totalCorrect} · 错误 ${progress.totalWrong} · 已掌握 ${learned} · 待巩固 ${weak}`);
     console.log();
     for (const m of MODES) {
@@ -1032,7 +1061,7 @@ if (require.main === module) {
 module.exports = {
   loadFreqTable, pickExisting, ScoreTracker, weightedPick,
   foldDiacritics, sameFolded, hasDiacritics,
-  intervalFor, wordWeight, recordAnswer, emptyProfile,
+  intervalFor, wordWeight, recordAnswer, emptyProfile, isWeak, isLearned,
   safeProfileName, listProfiles, loadProfile, saveProfile,
   createProfile, deleteProfile,
 };
