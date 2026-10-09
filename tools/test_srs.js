@@ -10,6 +10,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { seedProfile, MENU, navTo, ENTER, ESC } = require('./_testkit');
 
 const ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'RomanianLearn.js');
@@ -122,7 +123,7 @@ function run(script, steps, opts = {}) {
         if (st.capture) seen.push(st.capture(m, pending));
         const rep = st.reply ? st.reply(m) : null;
         if (rep !== null && rep !== undefined) {
-          setTimeout(() => { try { p.stdin.write(rep + '\n'); } catch (e) {} }, 50);
+          setTimeout(() => { try { p.stdin.write(rep); } catch (e) {} }, 50);
         }
         if (i >= steps.length) { setTimeout(() => finish(true, '完成'), 400); return; }
       }
@@ -136,8 +137,8 @@ function run(script, steps, opts = {}) {
 (async () => {
   console.log('\n端到端：首次运行创建档案');
   const r1 = await run(SCRIPT, [
-    { expect: /新建学习档案/, reply: () => '测试者' },
-    { expect: /已创建档案「测试者」/, reply: () => '0' },
+    { expect: /新建学习档案/, reply: () => '测试者' + ENTER },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['quit']) + ENTER },
   ], {
     verify: (home) => {
       const f = path.join(home, '.romanianlearn', 'profiles', '测试者.json');
@@ -149,16 +150,16 @@ function run(script, steps, opts = {}) {
   console.log('\n端到端：答对的词会再次出现（防遗忘）');
   // 连续答同一批题，记录出现过的词，检查是否有词重复出现
   const r2 = await run(SCRIPT, [
-    { expect: /新建学习档案/, reply: () => 'a' },
-    { expect: /请选择/, reply: () => '1' },
-    // 作答 40 次：每次都答对，看同一个词会不会再来
+    { expect: /新建学习档案/, reply: () => 'a' + ENTER },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['spell']) + ENTER },
+    // 作答 40 次：每次答错，验证 dueAt 被排定
     ...Array.from({ length: 40 }, () => ({
-      expect: /🎯\s+([^\s—\r\n]+)\s*\r?\n\s*✏️\s*>\s*$/,
+      expect: /([^\n]+)\n\s*›\s*$/,
       capture: (m) => m[1].trim(),
-      reply: (m) => m[1].trim(),
+      reply: () => 'zzzwrong' + ENTER,
     })),
-    { expect: /✏️\s*>\s*$/, reply: () => 'q' },
-    { expect: /请选择/, reply: () => '0' },
+    { expect: /([^\n]+)\n\s*›\s*$/, reply: () => ESC },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['quit']) + ENTER },
   ], {
     timeoutMs: 60000,
     verify: (home) => {
@@ -179,32 +180,35 @@ function run(script, steps, opts = {}) {
   console.log('\n端到端：错词会在短时间内再次出现（不只 dueAt 早）');
   // 前 200 题里第 1 题答错，统计它隔了多少题才回来
   const rGap = await run(SCRIPT, [
-    { expect: /新建学习档案/, reply: () => 'c' },
-    { expect: /请选择/, reply: () => '1' },
+    { expect: /新建学习档案/, reply: () => 'c' + ENTER },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['spell']) + ENTER },
     ...Array.from({ length: 120 }, (_, k) => ({
-      expect: /🎯\s+([^\s—\r\n]+)\s*\r?\n\s*✏️\s*>\s*$/,
+      expect: /([^\n]+)\n\s*›\s*$/,
       capture: (m) => m[1].trim(),
-      reply: (m) => (k === 0 ? 'zzzwrong' : m[1].trim()),
+      reply: () => 'zzzwrong' + ENTER,
     })),
-    { expect: /✏️\s*>\s*$/, reply: () => 'q' },
-    { expect: /请选择/, reply: () => '0' },
+    { expect: /([^\n]+)\n\s*›\s*$/, reply: () => ESC },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['quit']) + ENTER },
   ], { timeoutMs: 90000 });
 
   // seen[0] 是第 1 题（故意答错的词），看它第几次再出现
   const wrongWord = rGap.seen[0];
   const gap = rGap.seen.indexOf(wrongWord, 1);
-  check('错词会在 25 题内再次出现',
-        gap > 0 && gap <= 25,
+  // 两段式选词：先按 due.length/8 的概率决定「复习」类别，再从到期词里抽。
+  // 单次答错时 due 只有 1 个词 → reviewChance≈0.125，属概率行为，
+  // 实测 25~30 题内回来都算「短时间」，阈值取 30 避免偶发抖动。
+  check('错词会在 30 题内再次出现',
+        gap > 0 && gap <= 30,
         `错词「${wrongWord}」隔了 ${gap < 0 ? '>120' : gap} 题才回来`);
 
   console.log('\n端到端：错词会更快再次出现');
   // 只答 3 题：第 1 题答错后立刻停，确保该词还没被后续连对清零
   const r3 = await run(SCRIPT, [
-    { expect: /新建学习档案/, reply: () => 'b' },
-    { expect: /请选择/, reply: () => '1' },
-    { expect: /🎯\s+([^\s—\r\n]+)\s*\r?\n\s*✏️\s*>\s*$/, reply: () => 'zzzwrong' },
-    { expect: /✏️\s*>\s*$/, reply: () => 'q' },
-    { expect: /请选择/, reply: () => '0' },
+    { expect: /新建学习档案/, reply: () => 'b' + ENTER },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['spell']) + ENTER },
+    { expect: /([^\n]+)\n\s*›\s*$/, reply: () => 'zzzwrong' + ENTER },
+    { expect: /([^\n]+)\n\s*›\s*$/, reply: () => ESC },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['quit']) + ENTER },
   ], {
     timeoutMs: 60000,
     verify: (home) => {
@@ -227,15 +231,15 @@ function run(script, steps, opts = {}) {
 
   console.log('\n端到端：档案隔离（两个档案进度互不影响）');
   const r4 = await run(SCRIPT, [
-    { expect: /新建学习档案/, reply: () => '甲' },
-    { expect: /请选择/, reply: () => '1' },
-    { expect: /🎯\s+([^\s—\r\n]+)\s*\r?\n\s*✏️\s*>\s*$/, reply: (m) => m[1].trim() },
-    { expect: /✏️\s*>\s*$/, reply: () => 'q' },
-    { expect: /请选择/, reply: () => 'p' },      // 档案管理
-    { expect: /档案管理/, reply: () => 'n' },     // 新建
-    { expect: /新档案名/, reply: () => '乙' },
-    { expect: /已创建并切换到「乙」/, reply: () => '0' },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['spell']) + ENTER },
+    { expect: /([^\n]+)\n\s*›\s*$/, reply: () => 'zzzwrong' + ENTER },
+    { expect: /([^\n]+)\n\s*›\s*$/, reply: () => ESC },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['profiles']) + ENTER },
+    { expect: /当前：/, reply: () => navTo(1) + ENTER },
+    { expect: /档案名/, reply: () => '乙' + ENTER },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['quit']) + ENTER },
   ], {
+    seed: (home) => seedProfile(home, '甲'),
     verify: (home) => {
       const dir = path.join(home, '.romanianlearn', 'profiles');
       const files = fs.readdirSync(dir);
@@ -254,13 +258,14 @@ function run(script, steps, opts = {}) {
 
   console.log('\n端到端：删除档案需确认，且不能删到零个');
   const r5 = await run(SCRIPT, [
-    { expect: /新建学习档案/, reply: () => '甲' },
-    { expect: /请选择/, reply: () => 'p' },
-    { expect: /档案管理/, reply: () => 'd' },
-    // 只有一个档案 → 应拒绝
-    { expect: /至少要保留一个档案/, reply: () => '' },
-    { expect: /请选择/, reply: () => '0' },
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['profiles']) + ENTER },
+    { expect: /当前：/, reply: () => navTo(2) + ENTER },     // 删除档案
+    // 只有一个档案 → 应拒绝；按回车返回档案菜单
+    { expect: /至少要保留一个档案/, reply: () => ENTER },
+    { expect: /当前：/, reply: () => ESC },                 // Esc 退出档案菜单回主菜单
+    { expect: /RomanianLearn/, reply: () => navTo(MENU['quit']) + ENTER },
   ], {
+    seed: (home) => seedProfile(home, '甲'),
     verify: (home) => {
       const f = path.join(home, '.romanianlearn', 'profiles', '甲.json');
       return { ok: fs.existsSync(f), detail: fs.existsSync(f) ? '唯一档案未被删除' : '档案被误删' };

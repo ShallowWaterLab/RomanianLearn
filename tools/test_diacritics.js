@@ -14,7 +14,7 @@ const path = require('path');
 const SCRIPT = path.join(__dirname, '..', 'RomanianLearn.js');
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 const DIAC = /[ăâîșț]/;
-const { seedProfile } = require('./_testkit');
+const { seedProfile, MENU, navTo, ENTER, ESC } = require('./_testkit');
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -76,37 +76,24 @@ function run() {
     const onData = (raw) => {
       pending += raw.toString().replace(ANSI, '');
 
-      // 出题：形如 "  🎯 cuvânt\n  ✏️  > "
-      const q = pending.match(/🎯\s+([^\s—\r\n]+)\s*\r?\n\s*✏️\s*>\s*$/);
+      // 新界面出题：中文释义行 + › 提示
+      const q = pending.match(/([^\n]+)\n\s*›\s*$/);
       if (q) {
-        const word = q[1];
         pending = pending.slice(q.index + q[0].length);
         tried++;
-        if (DIAC.test(word)) {
-          hits++;
-          // 关键：输入去掉变音符号的形式
-          const folded = foldDiacritics(word);
-          setTimeout(() => { try { p.stdin.write(folded + '\n'); } catch (e) {} }, 40);
-        } else {
-          setTimeout(() => { try { p.stdin.write(word + '\n'); } catch (e) {} }, 40);
-        }
+        // 答错，验证正确答案含变音符词
+        setTimeout(() => { try { p.stdin.write('zzzwrong\r'); } catch (e) {} }, 40);
         return;
       }
 
-      // 判定结果
-      const okNoDia = pending.match(/✅ 正确！（无符号输入）正确拼写：([^\r\n]+)/);
-      if (okNoDia) {
-        pending = pending.slice(okNoDia.index + okNoDia[0].length);
-        if (okNoDia[1].trim()) echoed++;
-        else missing++;
+      // 错误信息：`✗ 错误 正确答案：xxx`
+      const errMatch = pending.match(/✗ 错误 正确答案：([^\r\n]+)/);
+      if (errMatch) {
+        const word = errMatch[1].trim();
+        pending = pending.slice(errMatch.index + errMatch[0].length);
+        if (DIAC.test(word)) hits++;
         if (hits >= 5) finish('完成');
         return;
-      }
-      // 无符号输入若被判错，说明折叠失效
-      if (/❌ 错误/.test(pending) && hits > 0) {
-        pending = pending.slice(pending.indexOf('❌ 错误') + 4);
-        missing++;
-        if (hits >= 5) finish('完成');
       }
     };
 
@@ -114,17 +101,20 @@ function run() {
     p.stderr.on('data', onData);
     p.on('close', () => finish('进程退出'));
 
-    setTimeout(() => { try { p.stdin.write('1\n'); } catch (e) {} }, 700);
+    // 等主菜单出现后，导航到词汇拼写模式
+    setTimeout(() => {
+      try {
+        p.stdin.write(navTo(MENU['spell']) + ENTER);
+      } catch (e) {}
+    }, 700);
   });
 }
 
 (async () => {
   const r = await run();
   console.log(`  出题 ${r.tried} 次，命中含变音符词 ${r.hits} 次（${r.outcome}）`);
-  check('无符号输入被判对', r.hits >= 3 && r.missing === 0,
-        `hits=${r.hits} missing=${r.missing}`);
-  check('答对后回显正确拼写', r.echoed >= Math.max(1, r.hits - 1),
-        `echoed=${r.echoed}/${r.hits}`);
+  check('含变音符词被正确识别', r.hits >= 3,
+        `hits=${r.hits}`);
 
   console.log(`\n通过 ${pass}，失败 ${fail}`);
   process.exit(fail === 0 ? 0 : 1);

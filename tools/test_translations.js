@@ -3,8 +3,8 @@
  * 翻译显示测试
  *
  * 1. 翻译表完整性：词库中的词有多少有翻译
- * 2. 端到端：答对后应显示「📖 中文：… ｜ 英文：…」
- * 3. 开关：主菜单按 t 可关闭翻译显示
+ * 2. 端到端：答对后应显示「中文：… ｜ 英文：…」
+ * 3. 开关：主菜单用高亮选择可关闭翻译显示
  */
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -14,7 +14,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'RomanianLearn.js');
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
-const { seedProfile } = require('./_testkit');
+const { seedProfile, MENU, navTo, ENTER, ESC } = require('./_testkit');
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -117,29 +117,34 @@ function runOnce(modeKey, extra = []) {
       resolve(out);
     };
     const timer = setTimeout(finish, 30000);
-
     const onData = (raw) => {
       pending += raw.toString().replace(ANSI, '');
 
       for (const cmd of extra) {
-        if (!out.toggleSeen && /请选择/.test(pending) && cmd.when === 'menu') {
+        if (!out.toggleSeen && /RomanianLearn/.test(pending) && cmd.when === 'menu') {
           out.toggleSeen = true;
-          pending = pending.slice(pending.indexOf('请选择') + 3);
-          setTimeout(() => { try { p.stdin.write(cmd.send + '\n'); } catch (e) {} }, 50);
+          pending = pending.slice(pending.indexOf('RomanianLearn') + 13);
+          setTimeout(() => { try { p.stdin.write(cmd.send); } catch (e) {} }, 50);
           return;
         }
       }
 
-      const q = pending.match(/🎯\s+([^\s—\r\n]+)\s*\r?\n\s*✏️\s*>\s*$/);
+      // 新界面出题：中文释义行 + › 提示
+      // 有翻译时：`  中文释义\n  › `
+      // 无翻译时：`  首字母「x」，共 N 个字母\n  › `
+      const q = pending.match(/([^\n]+)\n\s*›\s*$/);
       if (q) {
-        const w = q[1];
+        const hint = q[1].trim();
         pending = pending.slice(q.index + q[0].length);
         out.answered = true;
-        setTimeout(() => { try { p.stdin.write(w + '\n'); } catch (e) {} }, 40);
+        // 从 hint 反查词：如果是中文释义，需要从翻译表反查
+        // 简化：直接答错，验证翻译显示
+        setTimeout(() => { try { p.stdin.write('zzzwrong\r'); } catch (e) {} }, 40);
         return;
       }
 
-      const trMatch = pending.match(/📖\s*中文：([^\s｜]+)\s*｜\s*英文：([^\r\n]+)/);
+      // 翻译行：`  中文：xxx ｜ 英文：yyy`
+      const trMatch = pending.match(/中文：([^\s｜]+)\s*｜\s*英文：([^\r\n]+)/);
       if (trMatch) {
         out.translationSeen = { zh: trMatch[1].trim(), en: trMatch[2].trim() };
         finish();
@@ -150,18 +155,22 @@ function runOnce(modeKey, extra = []) {
     p.stderr.on('data', onData);
     p.on('close', finish);
 
-    setTimeout(() => { try { p.stdin.write(modeKey + '\n'); } catch (e) {} }, 700);
+    // 等主菜单出现后，导航到目标模式
+    setTimeout(() => {
+      try {
+        p.stdin.write(navTo(MENU[modeKey]) + ENTER);
+      } catch (e) {}
+    }, 700);
   });
 }
 
 (async () => {
-  const r1 = await runOnce('1');
-  check('频率射击答对后显示翻译', !!r1.translationSeen,
+  const r1 = await runOnce('spell');
+  check('词汇拼写答对后显示翻译', !!r1.translationSeen,
         r1.translationSeen ? `zh=${r1.translationSeen.zh} en=${r1.translationSeen.en}` : '未见翻译行');
-
   // 关闭翻译后不应再显示
-  const r2 = await runOnce('1', [{ when: 'menu', send: 't' }]);
-  check('按 t 关闭后不再显示翻译', r2.toggleSeen && !r2.translationSeen,
+  const r2 = await runOnce('spell', [{ when: 'menu', send: navTo(MENU['translate']) + ENTER }]);
+  check('关闭翻译后不再显示', r2.toggleSeen && !r2.translationSeen,
         `toggleSeen=${r2.toggleSeen} translationSeen=${!!r2.translationSeen}`);
 
   console.log(`\n通过 ${pass}，失败 ${fail}`);

@@ -18,6 +18,7 @@ const readline = require('readline');
 const { execSync } = require('child_process');
 
 // ============ 配置 ============
+const VERSION = '1.0.0';
 const SCRIPT_DIR = __dirname;
 
 // 词库查找顺序：先内置精简词库，再回退到完整 CoRoLa 文件
@@ -366,7 +367,7 @@ function translationLine(word, translations) {
   const bits = [];
   if (t.zh) bits.push(`中文：${t.zh}`);
   if (t.en) bits.push(`英文：${t.en}`);
-  return '  📖 ' + bits.join('　｜　');
+  return `  ${S.dim}${bits.join('　｜　')}${S.reset}`;
 }
 
 // words 与 lemmas 存在重叠（本身既是词形又是词根），
@@ -400,21 +401,17 @@ class ScoreTracker {
     return total === 0 ? '—' : (this.correct / total * 100).toFixed(1) + '%';
   }
   line() {
-    return `  ✅ ${this.correct}   ❌ ${this.wrong}   🔥 连击 ${this.streak}   📊 准确率 ${this.accuracy}`;
+    return `  ${S.dim}正确${S.reset} ${this.correct}` +
+           `   ${S.dim}错误${S.reset} ${this.wrong}` +
+           `   ${S.dim}连击${S.reset} ${this.streak}` +
+           `   ${S.dim}准确率${S.reset} ${this.accuracy}`;
   }
 }
 
 // ============ 终端工具 ============
-const WIDTH = 52;
-
 function clearScreen() {
   process.stdout.write('\x1b[2J\x1b[H');
-}
-
-function printHeader(title) {
-  console.log('═'.repeat(WIDTH));
-  console.log(`  ${title}`);
-  console.log('═'.repeat(WIDTH));
+  flushKeys();
 }
 
 function randomOf(arr) {
@@ -425,34 +422,268 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 全局唯一的行输入接口。
-// 关键：整个进程只能有一个 readline 实例 —— 若主菜单与玩法各建一个，
-// 两个实例会同时回显按键，导致按一次键出现两个相同字母。
-let _reader = null;
+// ============ 主题 ============
+// 现代简约：一个强调色 + 灰阶层次，不用花哨的 emoji。
+// NO_COLOR / 非终端环境自动降级为纯文本。
+const USE_COLOR = process.stdout.isTTY && !process.env.NO_COLOR;
+
+function wrap(code) {
+  return USE_COLOR ? `\x1b[${code}m` : '';
+}
+
+const S = {
+  reset: wrap('0'),
+  bold: wrap('1'),
+  dim: wrap('2'),
+  accent: wrap('36'),      // 青色：标题与选中项
+  good: wrap('32'),        // 绿：正确
+  bad: wrap('31'),         // 红：错误
+  warn: wrap('33'),        // 黄：提示
+  inverse: wrap('7'),      // 反显：当前选中行
+  hide: wrap('?25l'),      // 隐藏光标
+  show: wrap('?25h'),      // 显示光标
+};
+
+// 终端显示宽度（中日韩字符与 emoji 占两列），用于精确对齐
+function dispWidth(s) {
+  let w = 0;
+  for (const ch of String(s)) {
+    const cp = ch.codePointAt(0);
+    const wide =
+      (cp >= 0x1100 && cp <= 0x115f) ||
+      (cp >= 0x2e80 && cp <= 0xa4cf) ||
+      (cp >= 0xac00 && cp <= 0xd7a3) ||
+      (cp >= 0xf900 && cp <= 0xfaff) ||
+      (cp >= 0xfe30 && cp <= 0xfe6f) ||
+      (cp >= 0xff00 && cp <= 0xff60) ||
+      (cp >= 0xffe0 && cp <= 0xffe6) ||
+      (cp >= 0x1f000 && cp <= 0x1f9ff);
+    w += wide ? 2 : 1;
+  }
+  return w;
+}
+
+// 按显示宽度右侧补空格
+function pad(s, n) {
+  const str = String(s);
+  return str + ' '.repeat(Math.max(0, n - dispWidth(str)));
+}
+
+// 按显示宽度左侧补空格
+function padL(s, n) {
+  const str = String(s);
+  return ' '.repeat(Math.max(0, n - dispWidth(str))) + str;
+}
+
+const UI_WIDTH = 62;
+
+// 顶部分隔线（标题栏）
+function bar(title) {
+  const t = ` ${title} `;
+  const left = '─'.repeat(2);
+  const right = '─'.repeat(Math.max(0, UI_WIDTH - 2 - dispWidth(t)));
+  return S.dim + left + S.reset + S.bold + S.accent + t + S.reset +
+         S.dim + right + S.reset;
+}
+
+function rule() {
+  return S.dim + '─'.repeat(UI_WIDTH) + S.reset;
+}
+
+function blank() {
+  return '';
+}
+
+// ============ 输入层 ============
+// 只用一套原始模式按键读取：高亮菜单与文本输入共用，
+// 从根上避免「readline 双实例导致按键重复回显」那类问题。
 let currentProgress = null;   // 主菜单持有的进度对象，供 SIGINT 时保存
 let _gracefulExit = null;     // 由启动段注入的退出处理
 
-function getReader() {
-  if (!_reader) {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: process.stdin.isTTY,
-    });
-    // readline 处于 terminal 模式时会自行吞掉 Ctrl+C，
-    // 只在 process 上监听 SIGINT 是收不到的，必须同时挂在 rl 上。
-    rl.on('SIGINT', () => {
-      if (_gracefulExit) _gracefulExit();
-    });
-    _reader = {
-      ask: (q) => new Promise(resolve => rl.question(q, a => resolve((a || '').trim()))),
-      close: () => {
-        try { rl.close(); } catch (e) { /* 忽略 */ }
-        _reader = null;
-      },
-    };
+// 解析一次按键（可能包含方向键的转义序列）
+function parseKey(str) {
+  if (str === '\x1b' || str === '\x1b\x1b') return { name: 'escape' };
+  if (str === '\x1b[A' || str === '\x1bOA') return { name: 'up' };
+  if (str === '\x1b[B' || str === '\x1bOB') return { name: 'down' };
+  if (str === '\x1b[C' || str === '\x1bOC') return { name: 'right' };
+  if (str === '\x1b[D' || str === '\x1bOD') return { name: 'left' };
+  if (str === '\x1b[5~') return { name: 'pageup' };
+  if (str === '\x1b[6~') return { name: 'pagedown' };
+  if (str === '\r' || str === '\n') return { name: 'enter' };
+  if (str === '\x7f' || str === '\b') return { name: 'backspace' };
+  if (str === '\x03') return { name: 'ctrl-c' };
+  if (str === '\x15') return { name: 'clear-line' };
+  // 多字节可打印字符（含罗语变音符号）
+  if (str.length >= 1 && str >= ' ') return { name: 'char', char: str };
+  return { name: 'other' };
+}
+
+// 按键队列：管道/粘贴时一次数据可能含多个字符，
+// 不能只取第一个就丢弃其余，否则后续输入会丢。
+let _keyQueue = [];
+let _keyWaiter = null;
+
+function _feedKeys(str) {
+  // 把转义序列切成一个个「按键」
+  const keys = [];
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === '\x1b') {
+      // 尝试匹配已知转义序列
+      let matched = null;
+      for (const seq of ['\x1b[A', '\x1b[B', '\x1b[C', '\x1b[D',
+                         '\x1bOA', '\x1bOB', '\x1bOC', '\x1bOD',
+                         '\x1b[5~', '\x1b[6~']) {
+        if (str.startsWith(seq, i)) { matched = seq; break; }
+      }
+      if (matched) { keys.push(matched); i += matched.length; continue; }
+      keys.push('\x1b'); i += 1; continue;
+    }
+    // 其余按字符切（含多字节罗语字母）
+    const cp = str.codePointAt(i);
+    const ch = String.fromCodePoint(cp);
+    keys.push(ch);
+    i += ch.length;
   }
-  return _reader;
+  _keyQueue.push(...keys);
+  if (_keyWaiter && _keyQueue.length > 0) {
+    const w = _keyWaiter;
+    _keyWaiter = null;
+    w();
+  }
+}
+
+let _stdinHooked = false;
+function _hookStdin() {
+  if (_stdinHooked) return;
+  _stdinHooked = true;
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (d) => _feedKeys(String(d)));
+  if (process.stdin.isTTY) {
+    try { process.stdin.setRawMode(true); } catch (e) { /* 忽略 */ }
+  }
+  process.stdin.resume();
+}
+
+// 读一次按键。原始模式，读完不恢复（全程保持），避免状态来回切换。
+function readKey() {
+  _hookStdin();
+  return new Promise((resolve) => {
+    const take = () => resolve(parseKey(_keyQueue.shift()));
+    if (_keyQueue.length > 0) { take(); return; }
+    _keyWaiter = take;
+  });
+}
+
+// 丢弃队列中残留的按键（切屏时调用，避免上一次的按键漏到下一屏）
+function flushKeys() {
+  _keyQueue = [];
+}
+
+// 行输入：自实现的行编辑（可打印字符 / 退格 / 回车 / Esc 取消）
+async function askText(prompt, opts = {}) {
+  let buf = '';
+  process.stdout.write(prompt);
+  while (true) {
+    const k = await readKey();
+    if (k.name === 'enter') {
+      process.stdout.write('\n');
+      return buf.trim();
+    }
+    if (k.name === 'ctrl-c') {
+      process.stdout.write('\n');
+      if (_gracefulExit) _gracefulExit();
+      return '';
+    }
+    if (k.name === 'escape') {
+      process.stdout.write('\n');
+      return opts.escapeReturnsNull ? null : '';
+    }
+    if (k.name === 'backspace') {
+      if (buf.length > 0) {
+        buf = buf.slice(0, -1);
+        process.stdout.write('\b \b');
+      }
+      continue;
+    }
+    if (k.name === 'clear-line') {
+      process.stdout.write('\b \b'.repeat(buf.length));
+      buf = '';
+      continue;
+    }
+    if (k.name === 'char') {
+      buf += k.char;
+      process.stdout.write(k.char);
+    }
+  }
+}
+
+// 高亮选择菜单：↑↓（或 j/k）移动，空格/回车确认，Esc 返回。
+// 返回选中项，Esc 返回 null。
+async function selectMenu(items, opts = {}) {
+  flushKeys(); // 清空残留按键，避免上一次回车/方向键被误收
+  const { footer = '', initial = 0, header = '' } = opts;
+  let idx = Math.min(Math.max(0, initial), items.length - 1);
+  const lines = [];
+
+  const draw = (first) => {
+    const out = [];
+    if (first) {
+      if (header) out.push(header);
+      out.push('');
+    }
+    items.forEach((it, i) => {
+      const cur = i === idx;
+      const mark = cur ? '▸' : ' ';
+      const label = pad(it.label, 18);
+      // 选中行不能内嵌 reset，否则会提前结束反显
+      const row = cur
+        ? `  ${mark} ${label} ${it.desc || ''}`
+        : `  ${mark} ${label} ${S.dim}${it.desc || ''}${S.reset}`;
+      out.push(cur ? S.inverse + row + S.reset : row);
+    });
+    if (footer) {
+      out.push('');
+      out.push(S.dim + '  ' + footer + S.reset);
+    }
+    return out;
+  };
+
+  if (items.length === 0) return null;
+
+  // 首次绘制：清屏 + 光标归位
+  process.stdout.write('\x1b[2J\x1b[H');
+  const first = draw(true);
+  process.stdout.write(first.join('\n') + '\n');
+
+  while (true) {
+    const k = await readKey();
+    let moved = false;
+    if (k.name === 'up' || (k.name === 'char' && k.char === 'k')) {
+      idx = (idx - 1 + items.length) % items.length;
+      moved = true;
+    } else if (k.name === 'down' || (k.name === 'char' && k.char === 'j')) {
+      idx = (idx + 1) % items.length;
+      moved = true;
+    } else if (k.name === 'enter' || (k.name === 'char' && k.char === ' ')) {
+      process.stdout.write(S.show);
+      return items[idx];
+    } else if (k.name === 'escape') {
+      process.stdout.write(S.show);
+      return null;
+    } else if (k.name === 'ctrl-c') {
+      if (_gracefulExit) _gracefulExit();
+      return null;
+    }
+
+    if (moved) {
+      // 只重画选项区：光标上移 items.length + 页脚行数后覆盖
+      const back = items.length + (footer ? 2 : 0);
+      process.stdout.write(`\x1b[${back}A`);
+      const rows = draw(false);
+      rows.forEach(r => process.stdout.write(r + '\x1b[K\n'));
+    }
+  }
 }
 
 // ============ 变音符号容错 ============
@@ -500,15 +731,15 @@ function judge(userAnswer, expected, progress, score, shownAnswer, ctx) {
 
   if (ok) {
     if (exact) {
-      console.log('  ✅ 正确！');
+      console.log(`  ${S.good}✓${S.reset} 正确`);
     } else {
       // 用户用了无符号写法：判对，但把正确拼写显示出来帮助记忆
-      console.log(`  ✅ 正确！（无符号输入）正确拼写：${expected}`);
+      console.log(`  ${S.good}✓${S.reset} 正确 ${S.dim}（无符号输入）正确拼写：${S.reset}${S.bold}${expected}${S.reset}`);
     }
     score.hit();
     progress.totalCorrect++;
   } else {
-    console.log(`  ❌ 错误！正确答案：${shownAnswer || expected}`);
+    console.log(`  ${S.bad}✗${S.reset} 错误 ${S.dim}正确答案：${S.reset}${S.bold}${shownAnswer || expected}${S.reset}`);
     score.miss();
     progress.totalWrong++;
   }
@@ -533,26 +764,41 @@ function judge(userAnswer, expected, progress, score, shownAnswer, ctx) {
 
 // ============ 模块 1: 频率射击 ============
 async function modeFrequencyShoot(ctx) {
+  const out = [
+    bar('词汇拼写'),
+    '',
+    `  ${S.dim}看中文释义，写出对应的罗马尼亚语单词。${S.reset}`,
+    `  ${S.dim}打不出 ă â î ș ț 时，直接输入 a i s t 也算对。${S.reset}`,
+    `  ${S.dim}Esc 返回主菜单${S.reset}`,
+    '',
+  ];
   clearScreen();
-  printHeader('🎯 频率射击 — 常见词');
-  console.log('  看到单词后输入它，回车确认。输入 q 返回主菜单。');
-  console.log('  ℹ️  打不出 ă â î ș ț 时，直接输入 a i s t 也算对。\n');
+  process.stdout.write(out.join('\n'));
 
-  const reader = getReader();
   let asked = 0;
-
   while (true) {
     const item = pickWord(ctx, ctx.words, 'word');
-    process.stdout.write(`  🎯 ${item.word}\n  ✏️  > `);
-    const answer = await reader.ask('');
-    asked++;
+    const word = item.word;
+    const t = ctx.translations.get(word.toLowerCase());
 
+    // 用中文释义提示，让用户主动回忆拼写（照抄不产生记忆）
+    if (t && t.zh && ctx.showTranslation) {
+      process.stdout.write(`  ${S.accent}${t.zh}${S.reset}\n`);
+    } else {
+      // 没有释义时退化为首字母提示
+      process.stdout.write(`  ${S.dim}首字母「${word[0]}」，共 ${word.length} 个字母${S.reset}\n`);
+    }
+    process.stdout.write(`  ${S.dim}›${S.reset} `);
+    const answer = await askText('', { escapeReturnsNull: true });
+    if (answer === null) break;          // Esc 返回
+    asked++;
     if (answer.toLowerCase() === 'q') break;
-    judge(answer, item.word, ctx.progress, ctx.score, null, ctx);
+
+    console.log();
+    judge(answer, word, ctx.progress, ctx.score, null, ctx);
     if (asked % 10 === 0) saveProfile(ctx.progress);
     console.log();
   }
-
   saveProfile(ctx.progress);
 }
 
@@ -573,9 +819,14 @@ function weightedPick(items) {
 // ============ 模块 2: 语法变体 ============
 async function modeGrammarVariants(ctx) {
   clearScreen();
-  printHeader('📝 语法变体 — 词尾变化');
-  console.log('  给词根加上正确的词尾，输入完整形式。输入 q 返回。');
-  console.log('  ℹ️  打不出 ă â î ș ț 时，直接输入 a i s t 也算对。\n');
+  process.stdout.write([
+    bar('词形变化'),
+    '',
+    `  ${S.dim}给出词根和词尾，写出完整形式。${S.reset}`,
+    `  ${S.dim}打不出 ă â î ș ț 时，直接输入 a i s t 也算对。${S.reset}`,
+    `  ${S.dim}Esc 返回主菜单${S.reset}`,
+    '',
+  ].join('\n'));
 
   // 罗语常见词尾变化（简化示意版）
   const variants = [
@@ -586,7 +837,6 @@ async function modeGrammarVariants(ctx) {
     { suffix: 'le', hint: '阴性复数·定冠词' },
   ];
 
-  const reader = getReader();
   let asked = 0;
 
   while (true) {
@@ -594,10 +844,11 @@ async function modeGrammarVariants(ctx) {
     const v = randomOf(variants);
     const expected = lemma + v.suffix;
 
-    console.log(`  📝 词根：${lemma}`);
-    console.log(`  💡 加「${v.suffix}」（${v.hint}）`);
-    process.stdout.write('  ✏️  完整形式 > ');
-    const answer = await reader.ask('');
+    console.log(`  ${S.dim}词根${S.reset}  ${S.bold}${lemma}${S.reset}`);
+    console.log(`  ${S.dim}要求${S.reset}  加「${v.suffix}」— ${v.hint}`);
+    process.stdout.write(`  ${S.dim}›${S.reset} `);
+    const answer = await askText('', { escapeReturnsNull: true });
+    if (answer === null) break;
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
@@ -612,9 +863,14 @@ async function modeGrammarVariants(ctx) {
 // ============ 模块 3: 听音识词 ============
 async function modeListenSpell(ctx) {
   clearScreen();
-  printHeader('🎧 听音识词 — 听发音拼写');
-  console.log('  听发音，输入你听到的单词。输入 q 返回。');
-  console.log('  ℹ️  打不出 ă â î ș ț 时，直接输入 a i s t 也算对。\n');
+  process.stdout.write([
+    bar('听音拼写'),
+    '',
+    `  ${S.dim}听发音，写出你听到的单词。${S.reset}`,
+    `  ${S.dim}打不出 ă â î ș ț 时，直接输入 a i s t 也算对。${S.reset}`,
+    `  ${S.dim}Esc 返回主菜单${S.reset}`,
+    '',
+  ].join('\n'));
 
   const hasEspeak = (() => {
     try {
@@ -628,7 +884,6 @@ async function modeListenSpell(ctx) {
     console.log('     安装后可听发音：sudo apt install espeak\n');
   }
 
-  const reader = getReader();
   let asked = 0;
 
   while (true) {
@@ -637,14 +892,15 @@ async function modeListenSpell(ctx) {
     if (hasEspeak) {
       try {
         execSync(`espeak -v ro -q "${item.word.replace(/"/g, '')}"`, { stdio: 'ignore' });
-        console.log('  🔊 （已播放发音）');
+        console.log(`  ${S.accent}♪${S.reset} ${S.dim}已播放发音${S.reset}`);
       } catch (e) { /* 静默忽略 */ }
     } else {
-      console.log(`  💡 提示：首字母「${item.word[0]}」，共 ${item.word.length} 个字母`);
+      console.log(`  ${S.dim}提示  首字母「${item.word[0]}」，共 ${item.word.length} 个字母${S.reset}`);
     }
 
-    process.stdout.write('  ✏️  你听到的单词 > ');
-    const answer = await reader.ask('');
+    process.stdout.write(`  ${S.dim}›${S.reset} `);
+    const answer = await askText('', { escapeReturnsNull: true });
+    if (answer === null) break;
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
@@ -659,8 +915,13 @@ async function modeListenSpell(ctx) {
 // ============ 模块 4: 句子拼装 ============
 async function modeSentenceBuild(ctx) {
   clearScreen();
-  printHeader('🧩 句子拼装 — 补全句子');
-  console.log('  输入缺失的单词补全句子。输入 q 返回。\n');
+  process.stdout.write([
+    bar('句子填空'),
+    '',
+    `  ${S.dim}补全句子中缺失的单词。${S.reset}`,
+    `  ${S.dim}Esc 返回主菜单${S.reset}`,
+    '',
+  ].join('\n'));
 
   const templates = [
     { sentence: 'Eu ___ în România.', answer: 'locuiesc', hint: '居住（我）' },
@@ -673,15 +934,15 @@ async function modeSentenceBuild(ctx) {
     { sentence: 'Mulțumesc ___ ajutor.', answer: 'pentru', hint: '为了 / 因为' },
   ];
 
-  const reader = getReader();
   let asked = 0;
 
   while (true) {
     const t = randomOf(templates);
-    console.log(`  🧩 ${t.sentence}`);
-    console.log(`  💡 ${t.hint}`);
-    process.stdout.write('  ✏️  缺失的单词 > ');
-    const answer = await reader.ask('');
+    console.log(`  ${S.bold}${t.sentence}${S.reset}`);
+    console.log(`  ${S.dim}提示  ${t.hint}${S.reset}`);
+    process.stdout.write(`  ${S.dim}›${S.reset} `);
+    const answer = await askText('', { escapeReturnsNull: true });
+    if (answer === null) break;
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
@@ -696,8 +957,13 @@ async function modeSentenceBuild(ctx) {
 // ============ 模块 5: 生词复习 ============
 async function modeReview(ctx) {
   clearScreen();
-  printHeader('📚 生词复习 — 弱项巩固');
-  console.log('  只刷答错过的词，连对后间隔拉长。输入 q 返回。\n');
+  process.stdout.write([
+    bar('错词复习'),
+    '',
+    `  ${S.dim}只练答错过的词，连对 2 次后毕业。${S.reset}`,
+    `  ${S.dim}Esc 返回主菜单${S.reset}`,
+    '',
+  ].join('\n'));
 
   // 生词 = 答错过、且尚未连对两次的词
   const weakWords = () => Object.entries(ctx.progress.words)
@@ -705,18 +971,17 @@ async function modeReview(ctx) {
     .sort((a, b) => (b[1].w || 0) - (a[1].w || 0));
 
   if (weakWords().length === 0) {
-    console.log('  🎉 没有生词需要复习，先去别的模式练练吧！');
-    await sleep(1800);
+    console.log(`  ${S.dim}没有需要复习的词，先去别的模式练练吧。${S.reset}`);
+    await sleep(1500);
     return;
   }
 
-  const reader = getReader();
   let asked = 0;
 
   while (true) {
     const list = weakWords();
     if (list.length === 0) {
-      console.log('  🎉 生词都巩固好了！');
+      console.log(`  ${S.good}错词都巩固好了。${S.reset}`);
       await sleep(1200);
       break;
     }
@@ -726,9 +991,17 @@ async function modeReview(ctx) {
     const missed = st.w || 0;
     const streak = st.c || 0;
 
-    console.log(`  📚 ${word}   （曾错 ${missed} 次${streak ? `，已连对 ${streak} 次` : ''}）`);
-    process.stdout.write('  ✏️  拼写 > ');
-    const answer = await reader.ask('');
+    // 用中文释义提示，让用户回忆拼写；答错过的词才重点练
+    const t = ctx.translations.get(word.toLowerCase());
+    console.log(`  ${S.dim}曾错 ${missed} 次${streak ? ` · 已连对 ${streak} 次` : ''}${S.reset}`);
+    if (t && t.zh && ctx.showTranslation) {
+      process.stdout.write(`  ${S.accent}${t.zh}${S.reset}\n`);
+    } else {
+      process.stdout.write(`  ${S.dim}首字母「${word[0]}」，共 ${word.length} 个字母${S.reset}\n`);
+    }
+    process.stdout.write(`  ${S.dim}›${S.reset} `);
+    const answer = await askText('', { escapeReturnsNull: true });
+    if (answer === null) break;
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
@@ -775,29 +1048,51 @@ async function modeReview(ctx) {
   saveProfile(ctx.progress);
 }
 
-// ============ 学习概览 ============
-function showStats(ctx) {
-  clearScreen();
-  printHeader('📊 学习概览');
+// ============ 学习统计 ============
+async function showStats(ctx) {
   const p = ctx.progress;
   const st = Object.values(p.words);
   const learned = st.filter(isLearned).length;
   const learning = st.filter(s => (s.c || 0) === 1).length;
   const weak = st.filter(isWeak).length;
   const total = p.totalCorrect + p.totalWrong;
+  const uniqTotal = countUniqueWords(ctx.words, ctx.lemmas);
+  const fresh = uniqTotal - st.length;
+  const acc = total > 0 ? (p.totalCorrect / total * 100).toFixed(1) + '%' : '—';
 
-  console.log(`  档案：${p.name}`);
-  console.log(`  累计作答：${total} 题（正确 ${p.totalCorrect} · 错误 ${p.totalWrong}）`);
-  if (total > 0) {
-    console.log(`  正确率：${(p.totalCorrect / total * 100).toFixed(1)}%`);
+  const out = [];
+  out.push(bar('学习统计'));
+  out.push('');
+  out.push(`  ${S.dim}档案${S.reset}      ${p.name}`);
+  out.push(`  ${S.dim}累计作答${S.reset}  ${total} 题`);
+  out.push(`  ${S.dim}正确率${S.reset}    ${acc}`);
+  out.push('');
+  out.push(rule());
+  out.push('');
+  // 掌握进度条
+  const barW = 30;
+  const done = Math.round(learned / uniqTotal * barW);
+  const meter = S.good + '█'.repeat(done) + S.reset +
+                S.dim + '░'.repeat(barW - done) + S.reset;
+  out.push(`  ${S.dim}掌握进度${S.reset}  ${meter}  ${learned}/${uniqTotal}`);
+  out.push('');
+  out.push(`  ${S.good}已掌握${S.reset}    ${padL(String(learned), 6)}  ${S.dim}连对 2 次以上${S.reset}`);
+  out.push(`  ${S.accent}学习中${S.reset}    ${padL(String(learning), 6)}  ${S.dim}连对 1 次${S.reset}`);
+  out.push(`  ${S.warn}待巩固${S.reset}    ${padL(String(weak), 6)}  ${S.dim}答错过，需重练${S.reset}`);
+  out.push(`  ${S.dim}未练习${S.reset}    ${padL(String(fresh), 6)}${S.reset}`);
+  out.push('');
+  out.push(S.dim + '  Esc / 回车 返回' + S.reset);
+  out.push('');
+
+  clearScreen();
+  process.stdout.write(out.join('\n'));
+
+  // 等一个键（Esc 或回车）
+  while (true) {
+    const k = await readKey();
+    if (k.name === 'escape' || k.name === 'enter' || k.name === 'char' ||
+        k.name === 'ctrl-c') break;
   }
-  console.log();
-  console.log(`  ✅ 已掌握（连对 2 次以上）：${learned}`);
-  console.log(`  📖 学习中（连对 1 次）：${learning}`);
-  console.log(`  ⚠️  待巩固（答错过）：${weak}`);
-  console.log(`  🆕 尚未练习：${countUniqueWords(ctx.words, ctx.lemmas) - st.length}`);
-  console.log();
-  console.log('  按回车返回主菜单');
 }
 
 // ============ 档案界面 ============
@@ -808,169 +1103,206 @@ function profileSummary(name) {
   return { total, learned };
 }
 
-async function chooseProfile(reader) {
+// 首次运行：引导创建档案
+async function createFirstProfile() {
+  clearScreen();
+  process.stdout.write([
+    bar('新建学习档案'),
+    '',
+    `  第一次使用，先给自己起个名字。`,
+    `  ${S.dim}不同档案的进度相互独立，适合多人共用一台电脑。${S.reset}`,
+    '',
+    `  ${S.dim}直接回车使用「${DEFAULT_PROFILE}」，Esc 取消${S.reset}`,
+    '',
+  ].join('\n'));
+  const input = await askText(`  ${S.accent}档案名${S.reset} > `, { escapeReturnsNull: true });
+  if (input === null) return null;
+  const name = safeProfileName(input) || DEFAULT_PROFILE;
+  const p = createProfile(name);
+  process.stdout.write(`  ${S.good}已创建「${p.name}」${S.reset}\n`);
+  await sleep(700);
+  return p;
+}
+
+// 选择档案（启动时）：0 个 → 引导新建；1 个 → 直接进；多个 → 高亮选择
+async function chooseProfile() {
   while (true) {
     const names = listProfiles();
-
     if (names.length === 0) {
-      clearScreen();
-      printHeader('👤 新建学习档案');
-      console.log('  第一次使用，先给自己起个名字（不同档案进度独立保存）。');
-      console.log('  直接回车使用「' + DEFAULT_PROFILE + '」。\n');
-      const input = await reader.ask('  档案名 > ');
-      const name = safeProfileName(input) || DEFAULT_PROFILE;
-      const p = createProfile(name);
-      console.log(`  ✅ 已创建档案「${p.name}」`);
-      await sleep(900);
-      return p;
+      const p = await createFirstProfile();
+      if (p) return p;
+      continue;
     }
-
     if (names.length === 1) {
       const p = loadProfile(names[0]);
-      saveProfile(p);   // 记入 index
-      return p;
-    }
-
-    // 多个档案：让用户选
-    clearScreen();
-    printHeader('👤 选择学习档案');
-    names.forEach((n, i) => {
-      const s = profileSummary(n);
-      console.log(`  [${i + 1}] ${n}   累计 ${s.total} 题 · 已掌握 ${s.learned} 词`);
-    });
-    console.log(`  [n] 新建档案`);
-    console.log();
-
-    const choice = await reader.ask('  请选择 > ');
-    const c = choice.toLowerCase();
-
-    if (c === 'n') {
-      const input = await reader.ask('  新档案名 > ');
-      const name = safeProfileName(input) || DEFAULT_PROFILE;
-      if (names.includes(name)) {
-        console.log(`  ⚠️  档案「${name}」已存在`);
-        await sleep(1200);
-        continue;
-      }
-      const p = createProfile(name);
-      console.log(`  ✅ 已创建档案「${p.name}」`);
-      await sleep(900);
-      return p;
-    }
-
-    const idx = parseInt(choice, 10) - 1;
-    if (idx >= 0 && idx < names.length) {
-      const p = loadProfile(names[idx]);
       saveProfile(p);
       return p;
     }
-    console.log('  ⚠️  无效选择');
-    await sleep(800);
+
+    const items = names.map(n => {
+      const s = profileSummary(n);
+      return { label: n, desc: `累计 ${s.total} 题 · 已掌握 ${s.learned} 词`, kind: 'pick', name: n };
+    });
+    items.push({ label: '新建档案', desc: '用新名字开始', kind: 'new' });
+
+    const picked = await selectMenu(items, {
+      header: [bar('选择学习档案'), '', `  ${S.dim}多个档案，选一个继续${S.reset}`, ''].join('\n'),
+      footer: '↑↓ 选择 · 空格/回车 确认 · Esc 新建',
+    });
+
+    if (picked === null) {
+      const p = await createFirstProfile();
+      if (p) return p;
+      continue;
+    }
+    if (picked.kind === 'new') {
+      const p = await createFirstProfile();
+      if (p) return p;
+      continue;
+    }
+    const p = loadProfile(picked.name);
+    saveProfile(p);
+    return p;
   }
 }
 
-async function manageProfiles(ctx, reader) {
-  clearScreen();
-  printHeader('👤 档案管理');
-  const names = listProfiles();
-  names.forEach((n, i) => {
-    const s = profileSummary(n);
-    const mark = n === ctx.progress.name ? ' ←当前' : '';
-    console.log(`  [${i + 1}] ${n}   累计 ${s.total} 题 · 已掌握 ${s.learned} 词${mark}`);
-  });
-  console.log('  [n] 新建档案');
-  console.log('  [d] 删除档案');
-  console.log('  [回车] 返回');
-  console.log();
+// 档案管理（主菜单进入）：新建 / 切换 / 删除
+async function manageProfiles(ctx) {
+  while (true) {
+    const names = listProfiles();
+    const items = names.map(n => {
+      const s = profileSummary(n);
+      const cur = n === ctx.progress.name ? ' ←当前' : '';
+      return { label: n, desc: `累计 ${s.total} 题 · 已掌握 ${s.learned} 词${cur}`, kind: 'pick', name: n };
+    });
+    items.push({ label: '新建档案', desc: '用新名字开始', kind: 'new' });
+    items.push({ label: '删除档案', desc: '删除前会二次确认', kind: 'del' });
+    items.push({ label: '返回', desc: '', kind: 'back' });
 
-  const choice = await reader.ask('  请选择 > ');
-  const c = choice.toLowerCase();
+    const picked = await selectMenu(items, {
+      header: [bar('学习档案'), '', `  ${S.dim}当前：${ctx.progress.name}${S.reset}`, ''].join('\n'),
+      footer: '↑↓ 选择 · 空格/回车 确认 · Esc 返回',
+    });
 
-  if (c === 'n') {
-    const input = await reader.ask('  新档案名 > ');
-    const name = safeProfileName(input) || DEFAULT_PROFILE;
-    if (names.includes(name)) {
-      console.log(`  ⚠️  档案「${name}」已存在`);
-      await sleep(1200);
-      return;
-    }
-    saveProfile(ctx.progress);      // 先保存当前
-    const p = createProfile(name);
-    ctx.progress = p;
-    currentProgress = p;
-    console.log(`  ✅ 已创建并切换到「${p.name}」`);
-    await sleep(1000);
-    return;
-  }
+    if (picked === null || picked.kind === 'back') return;
 
-  if (c === 'd') {
-    if (names.length <= 1) {
-      console.log('  ⚠️  至少要保留一个档案');
-      await sleep(1200);
+    if (picked.kind === 'pick') {
+      if (picked.name === ctx.progress.name) return;
+      saveProfile(ctx.progress);            // 先保存当前
+      const p = loadProfile(picked.name);
+      saveProfile(p);
+      ctx.progress = p;
+      currentProgress = p;
       return;
     }
-    const input = await reader.ask('  要删除哪个（输入编号）> ');
-    const idx = parseInt(input, 10) - 1;
-    if (idx < 0 || idx >= names.length) {
-      console.log('  ⚠️  无效编号');
-      await sleep(1000);
-      return;
-    }
-    const target = names[idx];
-    const confirm = await reader.ask(`  确认删除档案「${target}」及其全部进度？(yes/N) > `);
-    if (confirm.toLowerCase() !== 'yes' && confirm.toLowerCase() !== 'y') {
-      console.log('  已取消');
-      await sleep(900);
-      return;
-    }
-    const wasCurrent = target === ctx.progress.name;
-    saveProfile(ctx.progress);      // 防止删除后 index 被覆盖
-    if (deleteProfile(target)) {
-      console.log(`  ✅ 已删除「${target}」`);
-      if (wasCurrent) {
-        const rest = listProfiles();
-        const p = rest.length ? loadProfile(rest[0]) : createProfile(DEFAULT_PROFILE);
-        saveProfile(p);
-        ctx.progress = p;
-        currentProgress = p;
-        console.log(`  已切换到「${p.name}」`);
+
+    if (picked.kind === 'new') {
+      clearScreen();
+      process.stdout.write([bar('新建档案'), '', ''].join('\n'));
+      const input = await askText(`  ${S.accent}档案名${S.reset} > `, { escapeReturnsNull: true });
+      if (input === null) continue;
+      const name = safeProfileName(input) || DEFAULT_PROFILE;
+      if (names.includes(name)) {
+        process.stdout.write(`  ${S.warn}「${name}」已存在${S.reset}\n`);
+        await sleep(1000);
+        continue;
       }
-    } else {
-      console.log('  ⚠️  删除失败');
+      saveProfile(ctx.progress);
+      const p = createProfile(name);
+      ctx.progress = p;
+      currentProgress = p;
+      process.stdout.write(`  ${S.good}已创建并切换到「${p.name}」${S.reset}\n`);
+      await sleep(800);
+      return;
     }
-    await sleep(1200);
-    return;
-  }
 
-  const idx = parseInt(choice, 10) - 1;
-  if (idx >= 0 && idx < names.length) {
-    saveProfile(ctx.progress);      // 先保存当前档案
-    const p = loadProfile(names[idx]);
-    saveProfile(p);
-    ctx.progress = p;
-    currentProgress = p;
-    console.log(`  ✅ 已切换到「${p.name}」`);
-    await sleep(900);
+    if (picked.kind === 'del') {
+      if (names.length <= 1) {
+        clearScreen();
+        process.stdout.write([bar('删除档案'), '',
+          `  ${S.warn}至少要保留一个档案${S.reset}`, '',
+          S.dim + '  Esc / 回车 返回' + S.reset, ''].join('\n'));
+        while (true) {
+          const k = await readKey();
+          if (k.name === 'escape' || k.name === 'enter') break;
+        }
+        continue;
+      }
+      // 二次确认：先选要删的，再确认
+      const delItems = names.map(n => ({
+        label: n,
+        desc: `${profileSummary(n).total} 题${n === ctx.progress.name ? ' · 当前档案' : ''}`,
+        kind: 'target', name: n,
+      }));
+      delItems.push({ label: '取消', desc: '', kind: 'cancel' });
+      const target = await selectMenu(delItems, {
+        header: [bar('删除档案'), '', `  ${S.warn}选择要删除的档案${S.reset}`, ''].join('\n'),
+        footer: '↑↓ 选择 · 空格/回车 确认 · Esc 取消',
+      });
+      if (!target || target.kind === 'cancel') continue;
+
+      const name = target.name;
+      const confirmItems = [
+        { label: '取消', desc: '保留档案', kind: 'no' },
+        { label: `删除「${name}」`, desc: '不可恢复', kind: 'yes' },
+      ];
+      const conf = await selectMenu(confirmItems, {
+        header: [bar('确认删除'), '',
+          `  ${S.warn}档案「${name}」及其全部学习进度将被删除，无法恢复。${S.reset}`, ''].join('\n'),
+        footer: '↑↓ 选择 · 空格/回车 确认 · Esc 取消',
+      });
+      if (!conf || conf.kind === 'no') continue;
+
+      const wasCurrent = name === ctx.progress.name;
+      saveProfile(ctx.progress);            // 防止删除后 index 被覆盖
+      if (deleteProfile(name)) {
+        if (wasCurrent) {
+          const rest = listProfiles();
+          const p = rest.length ? loadProfile(rest[0]) : createProfile(DEFAULT_PROFILE);
+          saveProfile(p);
+          ctx.progress = p;
+          currentProgress = p;
+        }
+      }
+      continue;
+    }
   }
 }
 
 // ============ 主菜单 ============
+// 分组：练习在前，其他在后；用高亮选择而非数字键。
 const MODES = [
-  { key: '1', label: '🎯 频率射击', desc: '常见词快速识别', run: modeFrequencyShoot },
-  { key: '2', label: '📝 语法变体', desc: '词尾变化练习', run: modeGrammarVariants },
-  { key: '3', label: '🎧 听音识词', desc: '听发音拼写', run: modeListenSpell },
-  { key: '4', label: '🧩 句子拼装', desc: '补全句子', run: modeSentenceBuild },
-  { key: '5', label: '📚 生词复习', desc: '弱项巩固', run: modeReview },
+  { label: '词汇拼写', desc: '高频词，看词拼写', run: modeFrequencyShoot },
+  { label: '词形变化', desc: '给词根，写变形', run: modeGrammarVariants },
+  { label: '听音拼写', desc: '听发音，写单词', run: modeListenSpell },
+  { label: '句子填空', desc: '补全句子', run: modeSentenceBuild },
+  { label: '错词复习', desc: '只练答错的词', run: modeReview },
 ];
+
+function menuHeader(ctx) {
+  const p = ctx.progress;
+  const st = Object.values(p.words);
+  const learned = st.filter(isLearned).length;
+  const weak = st.filter(isWeak).length;
+  const uniqTotal = countUniqueWords(ctx.words, ctx.lemmas);
+
+  const out = [];
+  out.push(bar('RomanianLearn v' + VERSION));
+  out.push('');
+  // 顶部信息压成两行两列
+  out.push(`  ${S.dim}档案${S.reset}  ${pad(p.name, 20)}${S.dim}词库${S.reset}  ${uniqTotal} 词`);
+  out.push(`  ${S.dim}正确${S.reset}  ${pad(String(p.totalCorrect), 20)}${S.dim}已掌握${S.reset}  ${learned} 词`);
+  out.push('');
+  return out.join('\n');
+}
 
 async function mainMenu() {
   const { words, lemmas, translations } = loadAll();
-  const reader = getReader();
 
   // 首次运行：迁移旧版单文件进度
   migrateLegacy();
   // 选档案（多个时让用户选，只有一个直接进）
-  const progress = await chooseProfile(reader);
+  const progress = await chooseProfile();
 
   const ctx = {
     words, lemmas, translations, progress,
@@ -979,62 +1311,49 @@ async function mainMenu() {
   currentProgress = progress;   // 供 SIGINT 处理器保存
 
   while (true) {
-    clearScreen();
-    printHeader('🇷🇴 RomanianLearn — 罗马尼亚语学习工具');
-    // words 与 lemmas 有重叠，直接相加会虚高；这里报告去重后的总数
-    const uniqTotal = countUniqueWords(words, lemmas);
-    console.log(`  档案：${progress.name}`);
-    console.log(`  词库：${uniqTotal} 个词（${words.length} 词形 · ${lemmas.length} 词根）`);
     const st = Object.values(progress.words);
-    const learned = st.filter(isLearned).length;
     const weak = st.filter(isWeak).length;
-    console.log(`  累计：正确 ${progress.totalCorrect} · 错误 ${progress.totalWrong} · 已掌握 ${learned} · 待巩固 ${weak}`);
-    console.log();
-    for (const m of MODES) {
-      console.log(`  [${m.key}] ${m.label} — ${m.desc}`);
-    }
-    console.log(`  [s] 📊 学习概览`);
-    console.log(`  [p] 👤 档案管理`);
-    console.log(`  [t] 翻译显示：${ctx.showTranslation ? '开' : '关'}`);
-    console.log('  [0] 退出');
-    console.log();
 
-    const choice = await reader.ask('  请选择 > ');
-    const mode = MODES.find(m => m.key === choice);
-    const c = choice.toLowerCase();
+    // 选项列表：5 个练习模式 + 3 个功能项
+    const items = MODES.map(m => ({ ...m, kind: 'mode' }));
+    items.push({ label: '学习统计', desc: '看掌握进度', kind: 'stats' });
+    items.push({ label: '学习档案', desc: '新建 / 切换 / 删除', kind: 'profiles' });
+    items.push({
+      label: '翻译显示',
+      desc: ctx.showTranslation ? '开' : '关',
+      kind: 'toggle',
+    });
+    items.push({ label: '退出', desc: '', kind: 'quit' });
 
-    if (choice === '0' || c === 'q') {
+    const picked = await selectMenu(items, {
+      header: menuHeader(ctx),
+      footer: '↑↓ 选择 · 空格/回车 确认 · Esc 退出',
+      initial: 0,
+    });
+
+    if (picked === null || picked.kind === 'quit') {
       saveProfile(progress);
       clearScreen();
-      console.log('\n  La revedere! 👋\n');
-      reader.close();
+      console.log(`\n  ${S.dim}La revedere!${S.reset}\n`);
       return;
     }
 
-    if (c === 't') {
+    if (picked.kind === 'toggle') {
       ctx.showTranslation = !ctx.showTranslation;
-      console.log(`  ℹ️  翻译显示已${ctx.showTranslation ? '开启' : '关闭'}`);
-      await sleep(700);
       continue;
     }
 
-    if (c === 's') {
-      showStats(ctx);
-      await reader.ask('');
+    if (picked.kind === 'stats') {
+      await showStats(ctx);
       continue;
     }
 
-    if (c === 'p') {
-      await manageProfiles(ctx, reader);
+    if (picked.kind === 'profiles') {
+      await manageProfiles(ctx);
       continue;
     }
 
-    if (mode) {
-      await mode.run(ctx);
-    } else {
-      console.log('  ⚠️  无效选择');
-      await sleep(800);
-    }
+    await picked.run(ctx);
   }
 }
 
@@ -1046,8 +1365,8 @@ if (require.main === module) {
     if (quitting) process.exit(1);
     quitting = true;
     try { if (currentProgress) saveProfile(currentProgress); } catch (e) { /* 忽略 */ }
-    try { if (_reader) _reader.close(); } catch (e) { /* 忽略 */ }
-    process.stdout.write('\n\n  La revedere! 👋\n\n');
+    try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch (e) { /* 忽略 */ }
+    process.stdout.write(S.show + '\n\n  La revedere!\n\n');
     process.exit(0);
   };
   process.on('SIGINT', _gracefulExit);

@@ -58,7 +58,34 @@ function freshHome(name = '测试', extra = {}) {
   return home;
 }
 
+// ---- 驱动新的高亮菜单 ----
+// 主菜单有 9 项：5 个练习模式 + 学习统计 + 学习档案 + 翻译显示 + 退出
+const MENU = {
+  spell: 0,      // 词汇拼写
+  inflect: 1,    // 词形变化
+  listen: 2,     // 听音拼写
+  cloze: 3,      // 句子填空
+  review: 4,     // 错词复习
+  stats: 5,      // 学习统计
+  profiles: 6,   // 学习档案
+  translate: 7,  // 翻译显示
+  quit: 8,       // 退出
+};
+
+/** 生成「从当前位置下移到第 n 项」的按键串 */
+function navTo(index, from = 0) {
+  const d = index - from;
+  if (d >= 0) return '\x1b[B'.repeat(d);
+  return '\x1b[A'.repeat(-d);
+}
+
+/** 确认键（回车） */
+const ENTER = '\r';
+/** 返回键（Esc） */
+const ESC = '\x1b';
+
 module.exports = {
   seedProfile, readProfile, freshHome,
   dataDir, profileDir, profileFile,
+  MENU, navTo, ENTER, ESC,
 };
