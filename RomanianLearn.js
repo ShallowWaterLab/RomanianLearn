@@ -18,7 +18,7 @@ const readline = require('readline');
 const { execSync } = require('child_process');
 
 // ============ 配置 ============
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const SCRIPT_DIR = __dirname;
 
 // 词库查找顺序：先内置精简词库，再回退到完整 CoRoLa 文件
