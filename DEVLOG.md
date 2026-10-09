@@ -134,7 +134,7 @@
 ### 待办
 - [x] 句子拼装模板需要扩充（v1.1.0 完成，8 → 57 个模板）
 - [x] 语法变体规则需要更精确（v1.1.0 完成，固定 5 后缀 → 规则生成器）
-- [ ] 听音识词可支持更多 TTS 后端
+- [x] 听音识词可支持更多 TTS 后端（v1.1.0 完成，espeak → 6 后端自动检测）
 
 ## 2026-10-09 — 界面重构：高亮选择 + 版本号
 
@@ -195,6 +195,26 @@
 
 ### 测试
 - `test_run.js` 9/9 通过（更新断言匹配新提示格式）
+- `test_diacritics.js` 15/15 通过
+- `test_translations.js` 13/13 通过
+- `test_install_files.js` 6/6 通过
+- `test_srs.js` 26/27（1 个既有失败，与本次改动无关）
+
+## 2026-10-09 — 听音识词：多 TTS 后端支持（v1.1.0）
+
+### 变更
+- **移除 espeak 硬编码**，改为按优先级自动检测 6 种 TTS 后端：
+  - `espeak` / `espeak-ng`（Linux 首选）
+  - `festival`（Linux 备选）
+  - `pico2wave`（轻量，需 aplay）
+  - `flite`（嵌入式）
+  - `say`（macOS 内置）
+- 检测结果缓存（`_ttsChecked`），避免每次出题重复检测。
+- 无 TTS 时仍显示首字母提示，不阻断学习流程。
+- 播放失败时自动降级为首字母提示，不抛异常。
+
+### 测试
+- `test_run.js` 9/9 通过
 - `test_diacritics.js` 15/15 通过
 - `test_translations.js` 13/13 通过
 - `test_install_files.js` 6/6 通过

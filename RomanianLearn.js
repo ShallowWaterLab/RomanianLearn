@@ -934,6 +934,44 @@ async function modeGrammarVariants(ctx) {
   saveProfile(ctx.progress);
 }
 
+
+// ============ TTS 后端管理 ============
+const TTS_BACKENDS = [
+  { name: 'espeak', cmd: w => `espeak -v ro -q "${w}"` },
+  { name: 'espeak-ng', cmd: w => `espeak-ng -v ro -q "${w}"` },
+  { name: 'festival', cmd: w => `echo "${w}" | festival --tts --language romanian` },
+  { name: 'pico2wave', cmd: w => `pico2wave -l ro-RO -w /tmp/rl_tts.wav "${w}" && aplay /tmp/rl_tts.wav 2>/dev/null` },
+  { name: 'flite', cmd: w => `flite -t "${w}"` },
+  { name: 'say', cmd: w => `say -v Ioana "${w}"` },
+];
+
+let _ttsBackend = null;
+let _ttsChecked = false;
+
+function detectTTS() {
+  if (_ttsChecked) return _ttsBackend;
+  _ttsChecked = true;
+  for (const b of TTS_BACKENDS) {
+    try {
+      execSync(`command -v ${b.name}`, { stdio: 'ignore' });
+      _ttsBackend = b;
+      break;
+    } catch (e) { /* not available */ }
+  }
+  return _ttsBackend;
+}
+
+function speak(word) {
+  const backend = detectTTS();
+  if (!backend) return false;
+  try {
+    execSync(backend.cmd(word.replace(/"/g, '')), { stdio: 'ignore' });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ============ 模块 3: 听音识词 ============
 async function modeListenSpell(ctx) {
   clearScreen();
@@ -946,15 +984,10 @@ async function modeListenSpell(ctx) {
     '',
   ].join('\n'));
 
-  const hasEspeak = (() => {
-    try {
-      execSync('command -v espeak', { stdio: 'ignore' });
-      return true;
-    } catch (e) { return false; }
-  })();
+  const ttsBackend = detectTTS();
 
-  if (!hasEspeak) {
-    console.log('  ⚠️  未检测到 espeak，将只显示首字母提示。');
+  if (!ttsBackend) {
+    console.log('  ⚠️  未检测到 TTS 引擎，将只显示首字母提示。');
     console.log('     安装后可听发音：sudo apt install espeak\n');
   }
 
@@ -963,11 +996,13 @@ async function modeListenSpell(ctx) {
   while (true) {
     const item = pickWord(ctx, ctx.words, 'word');
 
-    if (hasEspeak) {
-      try {
-        execSync(`espeak -v ro -q "${item.word.replace(/"/g, '')}"`, { stdio: 'ignore' });
+    if (ttsBackend) {
+      const ok = speak(item.word);
+      if (ok) {
         console.log(`  ${S.accent}♪${S.reset} ${S.dim}已播放发音${S.reset}`);
-      } catch (e) { /* 静默忽略 */ }
+      } else {
+        console.log(`  ${S.dim}提示  首字母「${item.word[0]}」，共 ${item.word.length} 个字母${S.reset}`);
+      }
     } else {
       console.log(`  ${S.dim}提示  首字母「${item.word[0]}」，共 ${item.word.length} 个字母${S.reset}`);
     }
