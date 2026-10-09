@@ -771,6 +771,48 @@ async function modeFrequencyShoot(ctx) {
     `  ${S.dim}打不出 ă â î ș ț 时，直接输入 a i s t 也算对。${S.reset}`,
     `  ${S.dim}Esc 返回主菜单${S.reset}`,
     '',
+    // ── 定冠词（后缀形式）──
+    { sentence: 'Văd ___ în parc.', answer: 'omul', hint: '那个人（阳性单数定冠词）' },
+    { sentence: 'Ea merge la ___.', answer: 'școala', hint: '学校（阴性单数定冠词）' },
+    { sentence: 'Noi vedem ___.', answer: 'copiii', hint: '孩子们（阳性复数定冠词）' },
+    // ── 指示形容词 ──
+    { sentence: '___ carte este interesantă.', answer: 'Această', hint: '这（阴性单数）' },
+    { sentence: 'Citesc ___ cărți.', answer: 'aceste', hint: '这些（阴性复数）' },
+    { sentence: '___ oameni sunt prietenoși.', answer: 'Acești', hint: '这些（阳性复数）' },
+    // ── 形容词一致（性/数）──
+    { sentence: 'Este o fată ___.', answer: 'frumoasă', hint: '漂亮（阴性单数）' },
+    { sentence: 'Am un prieten ___.', answer: 'bun', hint: '好（阳性单数）' },
+    { sentence: 'Văd două case ___.', answer: 'mari', hint: '大（阴性复数）' },
+    { sentence: 'Sunt ___.', answer: 'fericit', hint: '高兴（阳性单数）' },
+    { sentence: 'Ea este ___.', answer: 'fericită', hint: '高兴（阴性单数）' },
+    { sentence: 'Copiii sunt ___.', answer: 'fericiți', hint: '高兴（阳性复数）' },
+    // ── 介词（la, în, cu, pentru, de）──
+    { sentence: 'Merg ___ școală.', answer: 'la', hint: '去（学校）' },
+    { sentence: 'Locuiesc ___ București.', answer: 'în', hint: '在（城市）' },
+    { sentence: 'Vorbesc ___ prietenii.', answer: 'cu', hint: '和/跟' },
+    { sentence: 'Cumpăr ___ pâine.', answer: 'de', hint: '从/买（面包）' },
+    { sentence: 'Mulțumesc ___ ajutor.', answer: 'pentru', hint: '为了 / 因为' },
+    { sentence: 'Ea scrie ___ stilou.', answer: 'cu', hint: '用（笔）' },
+    // ── 代词（主格/宾格/与格）──
+    { sentence: '___ vorbesc română.', answer: 'Eu', hint: '我（主格）' },
+    { sentence: '___ văd pe el.', answer: 'Îl', hint: '他（宾格）' },
+    { sentence: '___ dau cartea.', answer: 'Îi', hint: '给他（与格）' },
+    { sentence: '___ îmi place cafeaua.', answer: 'Îmi', hint: '给我（与格）' },
+    { sentence: '___ ne place muzica.', answer: 'Ne', hint: '给我们（与格）' },
+    { sentence: '___ te iubesc.', answer: 'Te', hint: '你（宾格）' },
+    // ── 否定 ──
+    { sentence: '___ vreau să plec.', answer: 'Nu', hint: '不' },
+    { sentence: 'Ea ___ înțelege.', answer: 'nu', hint: '不' },
+    { sentence: '___ am văzut filmul.', answer: 'Nu', hint: '不' },
+    // ── 疑问 ──
+    { sentence: '___ vrei să mănânci?', answer: 'Ce', hint: '什么' },
+    { sentence: '___ locuiești?', answer: 'Unde', hint: '哪里' },
+    { sentence: '___ ai venit?', answer: 'Când', hint: '什么时候' },
+    // ── 过去时（am + 过去分词）──
+    { sentence: 'Ieri ___ la mare.', answer: 'am mers', hint: '去了（我）' },
+    { sentence: 'Eu ___ filmul.', answer: 'am văzut', hint: '看了（我）' },
+    { sentence: 'Ea ___ acasă.', answer: 'a fost', hint: '在（她）' },
+    { sentence: 'Noi ___ cartea.', answer: 'am citit', hint: '读了（我们）' },
   ];
   clearScreen();
   process.stdout.write(out.join('\n'));
@@ -923,15 +965,33 @@ async function modeSentenceBuild(ctx) {
     '',
   ].join('\n'));
 
-  const templates = [
+    const templates = [
+    // ── 动词变位（现在时）──
     { sentence: 'Eu ___ în România.', answer: 'locuiesc', hint: '居住（我）' },
-    { sentence: 'Ea ___ o carte.', answer: 'citește', hint: '读（她）' },
-    { sentence: 'Noi ___ la școală.', answer: 'mergem', hint: '去（我们）' },
     { sentence: 'Tu ___ foarte bine.', answer: 'cânți', hint: '唱（你）' },
-    { sentence: 'Ei ___ în parc.', answer: 'aleargă', hint: '跑（他们）' },
-    { sentence: 'Vreau ___ apă.', answer: 'o', hint: '不定冠词（阴性）' },
+    { sentence: 'Ea ___ o carte.', answer: 'citește', hint: '读（她）' },
     { sentence: 'El ___ un student.', answer: 'este', hint: '是（他）' },
+    { sentence: 'Noi ___ la școală.', answer: 'mergem', hint: '去（我们）' },
+    { sentence: 'Voi ___ la magazin.', answer: 'cumpărați', hint: '买（你们）' },
+    { sentence: 'Ei ___ în parc.', answer: 'aleargă', hint: '跑（他们）' },
+    { sentence: 'Ele ___ română.', answer: 'învață', hint: '学习（她们）' },
+    { sentence: 'Eu ___ o mașină.', answer: 'am', hint: '有（我）' },
+    { sentence: 'Tu ___ mulți prieteni.', answer: 'ai', hint: '有（你）' },
+    { sentence: 'El ___ o casă mare.', answer: 'are', hint: '有（他）' },
+    { sentence: 'Noi ___ trei copii.', answer: 'avem', hint: '有（我们）' },
+    { sentence: 'Voi ___ nevoie de ajutor.', answer: 'aveți', hint: '有（你们）' },
+    { sentence: 'Ei ___ un câine.', answer: 'au', hint: '有（他们）' },
+    // ── 不定冠词 ──
+    { sentence: 'Vreau ___ apă.', answer: 'o', hint: '不定冠词（阴性）' },
+    { sentence: 'El citește ___ carte.', answer: 'o', hint: '不定冠词（阴性）' },
+    { sentence: 'Am ___ câine.', answer: 'un', hint: '不定冠词（阳性）' },
+    { sentence: 'Ea are ___ pisică.', answer: 'o', hint: '不定冠词（阴性）' },
+    // ── 介词 ──
     { sentence: 'Mulțumesc ___ ajutor.', answer: 'pentru', hint: '为了 / 因为' },
+    { sentence: 'Merg ___ școală.', answer: 'la', hint: '去（学校）' },
+    { sentence: 'Locuiesc ___ București.', answer: 'în', hint: '在（城市）' },
+    { sentence: 'Vorbesc ___ prietenii.', answer: 'cu', hint: '和/跟' },
+    { sentence: 'Cumpăr ___ pâine.', answer: 'de', hint: '从/买（面包）' },
   ];
 
   let asked = 0;
