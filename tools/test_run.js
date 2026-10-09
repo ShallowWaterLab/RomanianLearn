@@ -129,7 +129,7 @@ const Q_PROMPT = /[^\n]*\n\s*›\s*$/;
   // B. 词形变化：给词根和词尾，写完整形式
   results.push(await runTest('B 词形变化·出题判定', [
     { expect: /词形变化/, reply: () => navTo(MENU.inflect) + '\r' },
-    { expect: /词根\s+(\S+)\n\s*要求\s+加「([^」]+)」/, reply: (m) => 'zzzwrong\r' },
+    { expect: /词根\s+(\S+)\n\s*要求\s+写出「([^」]+)」的形式/, reply: (m) => 'zzzwrong\r' },
     { expect: /错误/, reply: () => '\x1b' },
     { expect: /RomanianLearn/, reply: () => navTo(MENU.quit) + '\r' },
   ], {

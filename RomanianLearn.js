@@ -858,6 +858,46 @@ function weightedPick(items) {
   return pool[0];
 }
 
+
+// ============ 词形变化生成器 ============
+function genVariants(word) {
+  const w = word.toLowerCase();
+  const variants = [];
+
+  // 阴性名词 -e 结尾 (carte, floare, câine)
+  if (w.endsWith('e')) {
+    const base = w.slice(0, -1);
+    variants.push({ word: base + 'ea', hint: '阴性单数·定冠词' });
+    variants.push({ word: base + 'ii', hint: '阴性单数·属格/与格' });
+    variants.push({ word: base + 'ile', hint: '阴性复数·定冠词' });
+    variants.push({ word: base + 'lor', hint: '阴性复数·属格/与格' });
+  }
+  // 阴性名词 -ă 结尾 (casă, pisică, fată)
+  else if (w.endsWith('ă')) {
+    const base = w.slice(0, -1);
+    variants.push({ word: base + 'a', hint: '阴性单数·定冠词' });
+    variants.push({ word: base + 'ei', hint: '阴性单数·属格/与格' });
+    variants.push({ word: base + 'le', hint: '阴性复数·定冠词' });
+    variants.push({ word: base + 'lor', hint: '阴性复数·属格/与格' });
+  }
+  // 中性名词 -i 结尾
+  else if (w.endsWith('i')) {
+    variants.push({ word: w + 'ul', hint: '中性单数·定冠词' });
+    variants.push({ word: w + 'ului', hint: '中性单数·属格/与格' });
+    variants.push({ word: w + 'i', hint: '中性复数·定冠词' });
+    variants.push({ word: w + 'ilor', hint: '中性复数·属格/与格' });
+  }
+  // 阳性名词 辅音结尾 (om, student, profesor)
+  else if (!/[aeiouăâî]$/.test(w)) {
+    variants.push({ word: w + 'ul', hint: '阳性单数·定冠词' });
+    variants.push({ word: w + 'ului', hint: '阳性单数·属格/与格' });
+    variants.push({ word: w + 'i', hint: '阳性复数·定冠词' });
+    variants.push({ word: w + 'ilor', hint: '阳性复数·属格/与格' });
+  }
+
+  return variants;
+}
+
 // ============ 模块 2: 语法变体 ============
 async function modeGrammarVariants(ctx) {
   clearScreen();
@@ -870,31 +910,23 @@ async function modeGrammarVariants(ctx) {
     '',
   ].join('\n'));
 
-  // 罗语常见词尾变化（简化示意版）
-  const variants = [
-    { suffix: 'ul', hint: '阳性单数·定冠词' },
-    { suffix: 'ului', hint: '阳性单数·属格/与格' },
-    { suffix: 'a', hint: '阴性单数·定冠词' },
-    { suffix: 'i', hint: '复数' },
-    { suffix: 'le', hint: '阴性复数·定冠词' },
-  ];
-
   let asked = 0;
 
   while (true) {
     const lemma = pickWord(ctx, ctx.lemmas, 'lemma').lemma;
-    const v = randomOf(variants);
-    const expected = lemma + v.suffix;
+    const allVariants = genVariants(lemma);
+    if (allVariants.length === 0) continue;
+    const v = randomOf(allVariants);
 
     console.log(`  ${S.dim}词根${S.reset}  ${S.bold}${lemma}${S.reset}`);
-    console.log(`  ${S.dim}要求${S.reset}  加「${v.suffix}」— ${v.hint}`);
+    console.log(`  ${S.dim}要求${S.reset}  写出「${v.hint}」的形式`);
     process.stdout.write(`  ${S.dim}›${S.reset} `);
     const answer = await askText('', { escapeReturnsNull: true });
     if (answer === null) break;
 
     asked++;
     if (answer.toLowerCase() === 'q') break;
-    judge(answer, expected, ctx.progress, ctx.score, expected, ctx);
+    judge(answer, v.word, ctx.progress, ctx.score, v.word, ctx);
     if (asked % 10 === 0) saveProfile(ctx.progress);
     console.log();
   }
